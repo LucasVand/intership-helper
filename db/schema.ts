@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, index, integer } from "drizzle-orm/pg-core";
 
 export const internships = pgTable(
   "internships",
@@ -42,3 +42,29 @@ export const topPickKeywords = pgTable(
 
 export type TopPickKeyword = typeof topPickKeywords.$inferSelect;
 export type NewTopPickKeyword = typeof topPickKeywords.$inferInsert;
+
+export const syncRuns = pgTable(
+  "sync_runs",
+  {
+    id: serial("id").primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    // counts
+    scrapedCount: integer("scraped_count").notNull(),
+    existingCount: integer("existing_count").notNull(),
+    insertedCount: integer("inserted_count").notNull(),
+    updatedCount: integer("updated_count").notNull(),
+    totalAfter: integer("total_after").notNull(),
+    // timing
+    durationMs: integer("duration_ms").notNull(),
+    // status: success | dry_run | no_db | failed | skipped
+    status: text("status").notNull(),
+    // optional details
+    error: text("error"),
+    scrapedUrl: text("scraped_url"),
+    writeJson: boolean("write_json").notNull().default(false),
+  },
+  (table) => [index("sync_runs_created_at_idx").on(table.createdAt)]
+);
+
+export type SyncRun = typeof syncRuns.$inferSelect;
+export type NewSyncRun = typeof syncRuns.$inferInsert;

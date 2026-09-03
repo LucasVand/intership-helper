@@ -398,6 +398,14 @@ export default function Home() {
                 >
                   ✓ Applied • {stats.applied}
                 </Link>
+                <Link
+                  href="/sync"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}
+                  title="View sync history"
+                >
+                  ⧗ Sync
+                </Link>
                 <span
                   className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400"
                   style={{ padding: `${4 + (1 - p) * 4}px ${8 + (1 - p) * 4}px`, fontSize: `${11 + (1 - p) * 1}px` }}

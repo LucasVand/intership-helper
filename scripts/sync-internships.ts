@@ -8,7 +8,7 @@ import { writeFile } from "fs/promises";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
-import { internships } from "../db/schema";
+import { internships, syncRuns } from "../db/schema";
 
 const RAW_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md";
 const OUT_PATH = "internships.json";
@@ -148,11 +148,48 @@ function makeKey(r: { company: string; role: string; location: string; applicati
   return `${cleanForKey(r.company)}|${cleanForKey(r.role)}|${normalize(r.location)}|${links}`;
 }
 
+async function recordSyncRun(
+  pool: Pool,
+  db: ReturnType<typeof drizzle>,
+  data: {
+    scrapedCount: number;
+    existingCount: number;
+    insertedCount: number;
+    updatedCount: number;
+    totalAfter: number;
+    durationMs: number;
+    status: string;
+    error?: string | null;
+    scrapedUrl: string;
+    writeJson: boolean;
+  }
+) {
+  try {
+    await db.insert(syncRuns).values({
+      scrapedCount: data.scrapedCount,
+      existingCount: data.existingCount,
+      insertedCount: data.insertedCount,
+      updatedCount: data.updatedCount,
+      totalAfter: data.totalAfter,
+      durationMs: data.durationMs,
+      status: data.status,
+      error: data.error ?? null,
+      scrapedUrl: data.scrapedUrl,
+      writeJson: data.writeJson,
+    });
+    console.log(`  sync history recorded: ${data.status} +${data.insertedCount} ~${data.updatedCount} in ${data.durationMs}ms`);
+  } catch (e) {
+    // table may not exist yet if migration not run — warn but don't fail sync
+    console.warn("  warning: could not record sync run (maybe run `npm run db:migrate`):", String(e).slice(0, 200));
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const writeJson = args.includes("--write-json") || args.includes("--json");
   const verbose = args.includes("--verbose") || args.includes("-v");
+  const startMs = Date.now();
 
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`
@@ -178,8 +215,35 @@ Examples:
 
   console.log("Fetching internships from SimplifyJobs repo...");
   console.log(`  ${RAW_URL}`);
-  const readme = await fetchReadme();
-  const scraped = parseReadme(readme);
+  let scraped: ScrapedInternship[] = [];
+  try {
+    const readme = await fetchReadme();
+    scraped = parseReadme(readme);
+  } catch (e: any) {
+    console.error("Failed to fetch/parse README:", e?.message ?? e);
+    // if DB available, record failure
+    const connectionString = process.env.DATABASE_URL;
+    if (connectionString) {
+      try {
+        const pool = new Pool({ connectionString });
+        const db = drizzle(pool);
+        await recordSyncRun(pool, db, {
+          scrapedCount: 0,
+          existingCount: 0,
+          insertedCount: 0,
+          updatedCount: 0,
+          totalAfter: 0,
+          durationMs: Date.now() - startMs,
+          status: "failed",
+          error: String(e?.message ?? e).slice(0, 2000),
+          scrapedUrl: RAW_URL,
+          writeJson,
+        });
+        await pool.end();
+      } catch {}
+    }
+    process.exit(1);
+  }
   console.log(`Found ${scraped.length} rows in README`);
 
   if (writeJson) {
@@ -194,7 +258,6 @@ Examples:
     if (!dryRun && !writeJson) {
       console.log("Tip: run with --dry-run to preview or set DATABASE_URL in .env");
     }
-    // Still report what would be new vs file if no DB
     if (dryRun) {
       console.log(`Dry run: ${scraped.length} scraped entries (no DB to compare)`);
     }
@@ -210,8 +273,23 @@ Examples:
     const rows = await db.select().from(internships);
     existing = rows;
     console.log(`DB has ${existing.length} existing internships`);
-  } catch (e) {
+  } catch (e: any) {
     console.error("Failed to query DB (have you run `npm run db:migrate`?):", e);
+    const durationMs = Date.now() - startMs;
+    try {
+      await recordSyncRun(pool, db as any, {
+        scrapedCount: scraped.length,
+        existingCount: 0,
+        insertedCount: 0,
+        updatedCount: 0,
+        totalAfter: 0,
+        durationMs,
+        status: "failed",
+        error: String(e?.message ?? e).slice(0, 2000),
+        scrapedUrl: RAW_URL,
+        writeJson,
+      });
+    } catch {}
     await pool.end();
     process.exit(1);
   }
@@ -262,12 +340,38 @@ Examples:
 
   if (newEntries.length === 0 && toUpdate.length === 0) {
     console.log("DB is already up to date — nothing to do");
+    const durationMs = Date.now() - startMs;
+    await recordSyncRun(pool, db, {
+      scrapedCount: scraped.length,
+      existingCount: existing.length,
+      insertedCount: 0,
+      updatedCount: 0,
+      totalAfter: existing.length,
+      durationMs,
+      status: "success",
+      error: null,
+      scrapedUrl: RAW_URL,
+      writeJson,
+    });
     await pool.end();
     process.exit(0);
   }
 
   if (dryRun) {
     console.log("Dry run — not inserting/updating. Remove --dry-run to apply.");
+    const durationMs = Date.now() - startMs;
+    await recordSyncRun(pool, db, {
+      scrapedCount: scraped.length,
+      existingCount: existing.length,
+      insertedCount: newEntries.length,
+      updatedCount: toUpdate.length,
+      totalAfter: existing.length,
+      durationMs,
+      status: "dry_run",
+      error: null,
+      scrapedUrl: RAW_URL,
+      writeJson,
+    });
     await pool.end();
     process.exit(0);
   }
@@ -313,11 +417,47 @@ Examples:
     if (verbose || updated % 100 === 0) console.log(`  updated ${updated}/${toUpdate.length}`);
   }
 
+  const durationMs = Date.now() - startMs;
   console.log(`Done — inserted ${inserted} new, updated ${updated} existing. DB now has ${existing.length + inserted} rows`);
+
+  await recordSyncRun(pool, db, {
+    scrapedCount: scraped.length,
+    existingCount: existing.length,
+    insertedCount: inserted,
+    updatedCount: updated,
+    totalAfter: existing.length + inserted,
+    durationMs,
+    status: "success",
+    error: null,
+    scrapedUrl: RAW_URL,
+    writeJson,
+  });
+
   await pool.end();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(err);
+  // try to record failure if possible
+  try {
+    const connectionString = process.env.DATABASE_URL;
+    if (connectionString) {
+      const pool = new Pool({ connectionString });
+      const db = drizzle(pool);
+      await recordSyncRun(pool, db, {
+        scrapedCount: 0,
+        existingCount: 0,
+        insertedCount: 0,
+        updatedCount: 0,
+        totalAfter: 0,
+        durationMs: 0,
+        status: "failed",
+        error: String(err?.message ?? err).slice(0, 2000),
+        scrapedUrl: RAW_URL,
+        writeJson: false,
+      });
+      await pool.end();
+    }
+  } catch {}
   process.exit(1);
 });
