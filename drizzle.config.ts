@@ -9,7 +9,7 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/jobs",
+    url: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/intership-helper",
   },
   verbose: true,
   strict: true,

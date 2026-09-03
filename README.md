@@ -17,10 +17,10 @@ npm run dev                 # http://localhost:3000 — reads internships.json b
 
 **Env** (` .env.example:1`, `.env:1` — gitignored, example committed):
 ```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/jobs
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/intership-helper
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
-POSTGRES_DB=jobs
+POSTGRES_DB=intership-helper
 POSTGRES_PORT=5432
 ```
 

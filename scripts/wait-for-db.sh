@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-CONTAINER="jobs-postgres"
+CONTAINER="intership-helper-postgres"
 TIMEOUT=30
 
 echo "Waiting for Postgres ($CONTAINER) to be healthy..."
@@ -18,7 +18,7 @@ for i in $(seq 1 $TIMEOUT); do
   # Fallback: try pg_isready via exec if container exists but no healthcheck yet
   if [ "$STATUS" != "no-container" ] && [ "$STATUS" != "starting" ] && [ "$STATUS" != "healthy" ]; then
     # if health is unhealthy, still try pg_isready
-    if docker exec "$CONTAINER" pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-jobs}" >/dev/null 2>&1; then
+    if docker exec "$CONTAINER" pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-intership-helper}" >/dev/null 2>&1; then
       echo "✓ Postgres is ready via pg_isready (after ${i}s)"
       exit 0
     fi

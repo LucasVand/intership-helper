@@ -8,7 +8,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-# Architecture — jobs
+# Architecture — intership-helper
 
 Internships browser for `internships.json` (~1k SWE internships, Summer 2027). Search, filter, paginate, track `applied`, and surface Top Picks via keyword match. All routes degrade to JSON when Postgres is unavailable.
 

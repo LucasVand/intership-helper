@@ -1,5 +1,5 @@
 {
-  "name": "jobs",
+  "name": "intership-helper",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -17,7 +17,7 @@
     "db:down": "docker compose down",
     "db:down:volume": "docker compose down -v",
     "db:wait": "bash scripts/wait-for-db.sh",
-    "db:logs": "docker logs -f jobs-postgres",
+    "db:logs": "docker logs -f intership-helper-postgres",
     "db:ps": "docker compose ps",
     "db:restart": "npm run db:down && npm run db:up && npm run db:wait",
     "db:setup": "npm run db:up && npm run db:wait && npm run db:migrate && npm run db:seed",
