@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { InternshipCard, type Internship, type TagKey } from "./components/InternshipCard";
 
 type Keyword = {
@@ -379,7 +380,7 @@ export default function Home() {
                     display: p > 0.85 ? "none" : undefined,
                   }}
                 >
-                  Browse <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> internships{stats.applied > 0 && <> • <span className="font-medium text-emerald-700 dark:text-emerald-300">{stats.applied} applied</span></>} . <span style={{ opacity: 1 - p * 0.8, display: p > 0.7 ? "none" : "inline" }}>{metaSource === "db" ? "Backend paginated (Postgres)." : isLoading ? "Loading…" : "Backend paginated (JSON fallback)."}</span> {pagination.total > 0 && <span className="ml-1 text-zinc-500 dark:text-zinc-500" style={{ opacity: 1 - p, display: p > 0.5 ? "none" : "inline" }}>Page {pagination.page}/{pagination.totalPages} • {LIMIT}/page</span>}</p>
+                  Browse <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> internships{stats.applied > 0 && <> • <Link href="/applied" className="font-medium text-emerald-700 dark:text-emerald-300 hover:underline underline-offset-4">{stats.applied} applied</Link></>} . <span style={{ opacity: 1 - p * 0.8, display: p > 0.7 ? "none" : "inline" }}>{metaSource === "db" ? "Backend paginated (Postgres)." : isLoading ? "Loading…" : "Backend paginated (JSON fallback)."}</span> {pagination.total > 0 && <span className="ml-1 text-zinc-500 dark:text-zinc-500" style={{ opacity: 1 - p, display: p > 0.5 ? "none" : "inline" }}>Page {pagination.page}/{pagination.totalPages} • {LIMIT}/page</span>}</p>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <button
@@ -389,6 +390,14 @@ export default function Home() {
                 >
                   ★ Top Picks • {keywords.length} keywords
                 </button>
+                <Link
+                  href="/applied"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 dark:bg-emerald-600 font-medium text-white hover:bg-emerald-700 dark:hover:bg-emerald-700"
+                  style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}
+                  title="View all applied internships"
+                >
+                  ✓ Applied • {stats.applied}
+                </Link>
                 <span
                   className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400"
                   style={{ padding: `${4 + (1 - p) * 4}px ${8 + (1 - p) * 4}px`, fontSize: `${11 + (1 - p) * 1}px` }}
