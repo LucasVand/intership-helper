@@ -76,3 +76,8 @@ runner labeled `homelab`. The runner host must have the repository checked out t
 the runner, Docker access, and `/opt/intership-helper/.env.production` containing the
 production database settings. The workflow starts Postgres, runs the one-shot `migrate`
 container, then builds and starts the app.
+
+To verify the runner before merging a deployment change, check that it is online under
+**Settings → Actions → Runners** and that its labels include `self-hosted` and `homelab`.
+Merging to `main` starts CI first; the production workflow is then triggered only when CI
+finishes successfully.
