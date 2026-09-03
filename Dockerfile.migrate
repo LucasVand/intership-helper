@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY db ./db
+COPY drizzle ./drizzle
+COPY drizzle.config.ts ./
+
+CMD ["npm", "run", "db:migrate"]

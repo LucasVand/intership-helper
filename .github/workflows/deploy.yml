@@ -1,0 +1,47 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on:
+      - self-hosted
+      - homelab
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start database
+        run: docker compose --env-file /opt/intership-helper/.env.production up -d db
+
+      - name: Run database migrations
+        run: docker compose --env-file /opt/intership-helper/.env.production run --rm migrate
+
+      - name: Build and start application
+        run: docker compose --env-file /opt/intership-helper/.env.production up -d --build app
+
+      - name: Check application health
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --env-file /opt/intership-helper/.env.production logs app
+          exit 1
+
+      - name: Remove unused images
+        run: docker image prune -f

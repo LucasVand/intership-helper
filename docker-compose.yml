@@ -34,5 +34,17 @@ services:
     # Uncomment to auto-migrate and sync on start via an entrypoint script
     # command: sh -c "npx drizzle-kit push && npm run db:sync && node server.js"
 
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: intership-helper-migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-intership-helper}
+    restart: "no"
+
 volumes:
   postgres_data:

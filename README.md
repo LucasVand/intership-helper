@@ -35,6 +35,20 @@ npm run db:sync       # tsx scripts/sync-internships.ts — fetches SimplifyJobs
 npm run db:sync:dry   # dry-run without DB writes
 ```
 
+The production migration image is separate from the Next.js runtime image and contains the
+Drizzle CLI plus migration files. Start Postgres, run the one-shot migration container, then
+build/start the application:
+
+```bash
+docker compose up -d db
+docker compose run --rm migrate
+docker compose up -d --build app
+```
+
+`migrate` exits after applying pending migrations. A non-zero exit means the application should
+not be deployed until the migration problem is resolved. It does not run the internship data sync;
+run `npm run db:sync` separately when an import is needed.
+
 **Docker** (requires Docker daemon):
 ```bash
 npm run docker:up     # docker compose up --build — starts db (postgres) + app (Next standalone on :3000)
@@ -50,3 +64,15 @@ API: `GET /api/internships` (`app/api/internships/route.ts:1`) — DB-only (503 
 ## Scripts
 - `npm run dev` / `build` / `start` / `lint`
 - `npm run db:*` / `npm run docker:*` (see above)
+
+## GitHub Actions and homelab deployment
+
+Pull requests and pushes to `main` run the `build` and `tests` checks in
+`.github/workflows/ci.yml`. The test command uses `npm run test --if-present`; this
+is intentionally a no-op until a test script is added to `package.json`.
+
+After CI passes on `main`, `.github/workflows/deploy.yml` deploys through a self-hosted
+runner labeled `homelab`. The runner host must have the repository checked out through
+the runner, Docker access, and `/opt/intership-helper/.env.production` containing the
+production database settings. The workflow starts Postgres, runs the one-shot `migrate`
+container, then builds and starts the app.
