@@ -5,7 +5,7 @@ import * as schema from "./schema";
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
-  console.warn("DATABASE_URL not set — db will not connect (using internships.json fallback)");
+  console.warn("DATABASE_URL not set — db will not connect. Run npm run db:setup and set DATABASE_URL (DB is required, no JSON fallback).");
 }
 
 const pool = connectionString

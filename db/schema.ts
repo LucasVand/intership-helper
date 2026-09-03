@@ -61,7 +61,6 @@ export const syncRuns = pgTable(
     // optional details
     error: text("error"),
     scrapedUrl: text("scraped_url"),
-    writeJson: boolean("write_json").notNull().default(false),
   },
   (table) => [index("sync_runs_created_at_idx").on(table.createdAt)]
 );

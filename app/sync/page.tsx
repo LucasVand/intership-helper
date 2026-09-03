@@ -15,7 +15,6 @@ type SyncRun = {
   status: string;
   error: string | null;
   scrapedUrl: string | null;
-  writeJson: boolean;
 };
 
 type Pagination = {
@@ -130,18 +129,36 @@ export default function SyncHistoryPage() {
               </div>
             </div>
             {error && (
-              <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
-                {error.includes("not found") || error.includes("migrate") ? (
-                  <>
-                    <span className="font-medium">Sync history table not found</span> — run <code className="font-mono bg-white/60 dark:bg-black/20 px-1 py-0.5 rounded">npm run db:migrate</code> then re-run sync with <code className="font-mono bg-white/60 dark:bg-black/20 px-1 py-0.5 rounded">npm run db:sync</code>.
-                  </>
-                ) : error.includes("Database not configured") ? (
-                  <>
-                    <span className="font-medium">Database not configured</span> — set <code className="font-mono bg-white/60 dark:bg-black/20 px-1 py-0.5 rounded">DATABASE_URL</code> and run migrations to see sync history.
-                  </>
-                ) : (
-                  error
-                )}
+              <div className="rounded-xl border-2 border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-5 py-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-600 text-white text-sm">!</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-red-900 dark:text-red-100">Database not set up — cannot load sync history</p>
+                    <p className="mt-1 text-sm text-red-800 dark:text-red-200 break-words">{error}</p>
+                    {error.toLowerCase().includes("database not configured") || error.toLowerCase().includes("not set up") ? (
+                      <div className="mt-3 rounded-lg bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-800 p-3">
+                        <p className="text-xs font-medium text-zinc-900 dark:text-zinc-100">Fix:</p>
+                        <ol className="mt-1 list-decimal list-inside space-y-1 text-xs text-zinc-700 dark:text-zinc-300">
+                          <li>
+                            Set <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">DATABASE_URL</code> in <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">.env</code> (see <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">.env.example</code>)
+                          </li>
+                          <li>
+                            Run <code className="font-mono bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 px-1.5 py-0.5 rounded">npm run db:setup</code> (or <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">docker compose up -d db && npm run db:migrate</code>)
+                          </li>
+                          <li>
+                            Then run <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">npm run db:sync</code> to create history entries and reload this page
+                          </li>
+                        </ol>
+                      </div>
+                    ) : error.toLowerCase().includes("not found") || error.toLowerCase().includes("migrate") ? (
+                      <div className="mt-3 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-800 p-3">
+                        <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                          The <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">sync_runs</code> table is missing — run <code className="font-mono bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 px-1.5 py-0.5 rounded">npm run db:migrate</code>.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -171,7 +188,6 @@ export default function SyncHistoryPage() {
                 <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Run sync:</p>
                 <code className="mt-1 block font-mono text-xs text-zinc-600 dark:text-zinc-400">npm run db:sync</code>
                 <code className="mt-1 block font-mono text-xs text-zinc-600 dark:text-zinc-400">npm run db:sync:dry -- --dry-run</code>
-                <code className="mt-1 block font-mono text-xs text-zinc-600 dark:text-zinc-400">npx tsx scripts/sync-internships.ts --write-json</code>
               </div>
             </div>
           </div>
@@ -186,7 +202,6 @@ export default function SyncHistoryPage() {
                         <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusClasses(run.status)}`}>{run.status}</span>
                         <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{formatDate(run.createdAt)}</span>
                         <span className="text-xs text-zinc-500 dark:text-zinc-400">• {formatDuration(run.durationMs)} • id {run.id}</span>
-                        {run.writeJson && <span className="inline-flex items-center rounded-full bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">writeJson</span>}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs">
                         <span className="inline-flex items-center gap-1 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 px-2.5 py-1">

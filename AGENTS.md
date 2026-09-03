@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Architecture — intership-helper
 
-Internships browser for `internships.json` (~1k SWE internships, Summer 2027). Search, filter, paginate, track `applied`, and surface Top Picks via keyword match. All routes degrade to JSON when Postgres is unavailable.
+Internships browser (~1k SWE internships, Summer 2027) — DB-only. Search, filter, paginate, track `applied`, and surface Top Picks via keyword match. All routes require Postgres (`npm run db:setup`); no JSON fallback.
 
 ## Stack
 
@@ -34,19 +34,18 @@ db/
   schema.ts               # internships, topPickKeywords tables
   index.ts                # pool + drizzle, null when DATABASE_URL missing
 drizzle/                  # generated SQL migrations + meta
-internships.json          # source of truth (~1072 rows, committed)
+internships.json          # legacy snapshot (~1072 rows, not used at runtime — DB is source of truth)
 scripts/
-  seed.ts                 # bulk insert from internships.json
-  sync-internships.ts     # scrape/sync + flag parsing
+  sync-internships.ts     # scrape/sync + flag parsing (seeds DB on first run, DB-only)
   scrape_internships.ts
   wait-for-db.sh
 ```
 
 ## Data Model
 
-### Source `internships.json`
+### Source `internships.json` (legacy snapshot)
 
-Each entry: `{company, role, location, application_links: string[], age?: string, applied?: bool, no_sponsorship?, requires_citizenship?, is_closed?, is_faang?, requires_advanced_degree?}`. `age` is `0d`/`1d`/`...` string. Only `no_sponsorship` etc. present when true (sparse booleans). See `app/api/internships/route.ts:71`.
+File `internships.json` (~1072 rows) is a legacy snapshot of the remote SimplifyJobs README; it is no longer read at runtime (DB is sole source). Each entry shape was `{company, role, location, application_links: string[], age?: string, ...flags}`. Now `npm run db:sync` fetches the remote README and upserts directly into Postgres; `internships.json` remains in repo for reference only.
 
 ### DB `db/schema.ts:3`
 
@@ -55,7 +54,7 @@ Each entry: `{company, role, location, application_links: string[], age?: string
 
 ### DB Connection `db/index.ts:11`
 
-`DATABASE_URL` → `new Pool` → `drizzle(pool, {schema})`. If unset, `db` is `null` and all API routes fall back to JSON (`app/api/internships/route.ts:49`, `app/api/top-picks/route.ts:40`). SSL disabled for localhost/db host.
+`DATABASE_URL` → `new Pool` → `drizzle(pool, {schema})`. If unset, `db` is `null` and all API routes return `503 Database not configured` (no JSON fallback). SSL disabled for localhost/db host.
 
 ## API Layer
 
@@ -63,24 +62,18 @@ All routes `export const dynamic = "force-dynamic"`.
 
 ### `GET /api/internships` (`app/api/internships/route.ts:32`)
 
-Dual mode:
+DB-only — 503 if `DATABASE_URL` missing. Parses `q, age, applied (all/applied/not_applied), sort (newest/oldest/company/role)`, `page/limit` (limit capped 100, `app/api/internships/route.ts:95`), and five tag filters (`TagFilter = all|only|exclude`, `app/api/internships/route.ts:23-30`, parsed via `parseTagFilter` which accepts `only/true/1` and `exclude/hide/false/0`).
 
-- **Legacy (no query):** if no pagination/filter params (`app/api/internships/route.ts:34` checks `page/limit/q/age/applied/sort` + 5 tag params), returns plain array `Internship[]` (DB or JSON). Kept for backward compat.
-- **Paginated:** triggered when any filter/pagination param present. Parses `q, age, applied (all/applied/not_applied), sort (newest/oldest/company/role)`, `page/limit` (limit capped 100, `app/api/internships/route.ts:95`), and five tag filters (`TagFilter = all|only|exclude`, `app/api/internships/route.ts:23-30`, parsed via `parseTagFilter` which accepts `only/true/1` and `exclude/hide/false/0`).
-
-  DB path (`app/api/internships/route.ts:106`): builds `conditions: any[]` with `eq/ilike/or/and` from drizzle-orm, including tag conditions (`app/api/internships/route.ts:131-136` `eq(isFaang, only)`). `where = and(...conditions)`. `baseWhere` same but without `applied` (for stats). Executes 3 counts in parallel: `total` (full `where`), `appliedCount`/`notAppliedCount` (baseWhere + applied). Fetches facets `selectDistinct age`, sorts via `sql` `regexp_replace(age)`, pages with `limit/offset`. Returns `{data, pagination: {page,limit,total,totalPages,hasMore}, stats: {total,applied,notApplied}, facets: {ages}, meta: {source,sort,filters: {...tagFilters}}}` (`app/api/internships/route.ts:216`).
-
-  JSON fallback (`app/api/internships/route.ts:229`): in-memory mapping of `internships.json` (adding `applied:false`, boolean coercion), `matchesTags()` helper (`app/api/internships/route.ts:252`), `baseFiltered` (age+q+tags), counts, sorting, slicing.
+  DB path (`app/api/internships/route.ts:106`): builds `conditions: any[]` with `eq/ilike/or/and` from drizzle-orm, including tag conditions (`app/api/internships/route.ts:131-136` `eq(isFaang, only)`). `where = and(...conditions)`. `baseWhere` same but without `applied` (for stats). Executes 3 counts in parallel: `total` (full `where`), `appliedCount`/`notAppliedCount` (baseWhere + applied). Fetches facets `selectDistinct age`, sorts via `sql` `regexp_replace(age)`, pages with `limit/offset`. Returns `{data, pagination: {page,limit,total,totalPages,hasMore}, stats: {total,applied,notApplied}, facets: {ages}, meta: {source,sort,filters: {...tagFilters}}}` (`app/api/internships/route.ts:216`). 500 on DB error.
 
 - `PATCH /api/internships` (`app/api/internships/route.ts:307`): `{id, applied}` → `update set applied where id` → returns `{id, applied}`. 503 if no DB.
 
 ### `GET /api/top-picks` (`app/api/top-picks/route.ts:25`)
 
-Returns most recent N matching user keywords (keyword = case-insensitive substring on `company/role/location`). Also tag-filtered.
+DB-only — 503 if `DATABASE_URL` missing. Returns most recent N matching user keywords (case-insensitive substring on `company/role/location`), also tag-filtered.
 
-- Loads `topPickKeywords` from DB (`app/api/top-picks/route.ts:42`) or empty if no DB. If empty → `{data:[], keywords:[], meta:{source,limit,totalMatching:0}}`.
+- Loads `topPickKeywords` from DB (`app/api/top-picks/route.ts:42`); if empty → `{data:[], keywords:[], meta:{source,limit,totalMatching:0}}`.
 - DB path (`app/api/top-picks/route.ts:58`): `keywordWhere = or(...ilike patterns)`, `tagConditions` from `tagFilters` (`app/api/top-picks/route.ts:67-72`), `where = tagConditions.length ? and(keywordWhere, ...tagConditions) : keywordWhere`. Counts `totalMatching`, orders by `age` numeric asc (`sql` regexp_replace), `limit`.
-- JSON fallback (`app/api/top-picks/route.ts:109`): maps JSON, `matchesTags` + keyword `hay.includes`, sorts, slices.
 - Query params: `limit` (1..24, `app/api/top-picks/route.ts:27`) + same 5 tag params as internships. Shared filtering lets Top Picks respect the same tag state as the main list.
 
 ### `api/keywords` (`app/api/keywords/route.ts:7`)
@@ -92,7 +85,7 @@ CRUD for `topPickKeywords` (all 503 if no DB). `GET` ordered asc, `POST {keyword
 Single page, all state client-side, backend-paginated via `/api/*`.
 
 - **State:** `internships, pagination, stats, facets, metaSource, isLoading` (`app/page.tsx:41-48`); query `query/queryInput` (debounced 300ms `app/page.tsx:77`), `ageFilter, appliedFilter, sort, tagFilters: Record<TagKey,TagFilter>` (`app/page.tsx:55`), `TagFilter` cycle `all→exclude→only→all` (`app/page.tsx:280`), Top Picks `keywords, topPicks, topPicksMeta` (`app/page.tsx:64-67`).
-- **Fetching:** `fetchPage(page, append)` (`app/page.tsx:82`) builds `URLSearchParams` with `q/age/applied/sort` + all non-`all` tag filters (`app/page.tsx:92`), aborts prior request, handles both array (legacy) and `{data,pagination,stats}` shapes. `useEffect` on `fetchPage` identity (depends on `tagFilters` etc.) → auto-refetch on filter change. `fetchTopPicks` (`app/page.tsx:156`) same tag params → `/api/top-picks?limit=6&<tags>`, depends on `tagFilters`; `useEffect` on mount and on `keywords.length` (`app/page.tsx:189`).
+- **Fetching:** `fetchPage(page, append)` (`app/page.tsx:82`) builds `URLSearchParams` with `q/age/applied/sort` + all non-`all` tag filters (`app/page.tsx:92`), aborts prior request, expects `{data,pagination,stats}` (DB-only, 503 if no DB). `useEffect` on `fetchPage` identity (depends on `tagFilters` etc.) → auto-refetch on filter change. `fetchTopPicks` (`app/page.tsx:156`) same tag params → `/api/top-picks?limit=6&<tags>`, depends on `tagFilters`; `useEffect` on mount and on `keywords.length` (`app/page.tsx:189`).
 - **Mutations:** `toggleApplied(id)` (`app/page.tsx:300`) optimistically flips `applied` in both lists, updates `stats`, PATCHes DB if available, rolls back on failure. Keywords CRUD (`app/page.tsx:196-252`) POST/PATCH/DELETE then `fetchTopPicks()`.
 - **UI Sections:**
   - Sticky header (`app/page.tsx:331`): search input, `age`/`applied`/`sort` selects (`app/page.tsx:354-356`), Clear, tag filter bar (`app/page.tsx:360` `TAG_DEFS` pills cycling All/Hide/Only, `hasActiveTagFilters`). Active filter chips row (`app/page.tsx:394`).
@@ -118,8 +111,7 @@ Tailwind 4 (`app/globals.css:1` `@import "tailwindcss"`, CSS vars for light/dark
 
 ## Data Ingestion & Scripts
 
-- `scripts/seed.ts:10` — reads `internships.json`, optional `--clear`, batch 500 inserts mapping `application_links→applicationLinks`, boolean coercion for all 5 flags, `applied:false`.
-- `scripts/sync-internships.ts` / `scrape_internships.ts` — scrape source README, parse emoji legend into flag columns, write back to `internships.json` / DB (run `npm run db:sync`, `db:sync:dry`, `db:sync:json`).
+- `scripts/sync-internships.ts:13` — scrapes `https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md`, parses emoji flags (`🛂 🇺🇸 🔒 🔥 🎓`) + company/role/location/links, and upserts into DB (`insert` new + `update` flag/text backfill); records every run in `sync_runs` (`db/schema.ts:30`). Run via `npm run db:sync` (also seeds empty DB) or `db:sync:dry`.
 - `scripts/wait-for-db.sh` + `npm run db:*` helpers in `package.json:12`.
 
 ## Docker / Deploy
@@ -133,11 +125,11 @@ Tailwind 4 (`app/globals.css:1` `@import "tailwindcss"`, CSS vars for light/dark
 ```bash
 cp .env.example .env
 npm install
-npm run dev                         # json fallback
-npm run db:setup                    # up + wait + migrate + seed
+npm run dev                         # requires Postgres
+npm run db:setup                    # up + wait + migrate + sync (seeds via sync)
 npm run dev:db                      # setup + dev
 npm run docker:up / docker:down
-npm run db:migrate / db:push / db:studio / db:seed -- --clear
+npm run db:migrate / db:push / db:studio / db:sync -- --dry-run
 ```
 
 `GET /api/internships` without params still returns full array for simple fetches; paginated JSON uses `?page&limit&q&age&applied&sort&is_faang&...`.

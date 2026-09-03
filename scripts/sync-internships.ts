@@ -4,14 +4,12 @@ dotenv.config({ path: ".env.local" });
 
 import fetch from "node-fetch";
 import * as cheerio from "cheerio";
-import { writeFile } from "fs/promises";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
 import { internships, syncRuns } from "../db/schema";
 
 const RAW_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md";
-const OUT_PATH = "internships.json";
 
 type ScrapedInternship = {
   company: string;
@@ -161,7 +159,6 @@ async function recordSyncRun(
     status: string;
     error?: string | null;
     scrapedUrl: string;
-    writeJson: boolean;
   }
 ) {
   try {
@@ -175,7 +172,6 @@ async function recordSyncRun(
       status: data.status,
       error: data.error ?? null,
       scrapedUrl: data.scrapedUrl,
-      writeJson: data.writeJson,
     });
     console.log(`  sync history recorded: ${data.status} +${data.insertedCount} ~${data.updatedCount} in ${data.durationMs}ms`);
   } catch (e) {
@@ -187,7 +183,6 @@ async function recordSyncRun(
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
-  const writeJson = args.includes("--write-json") || args.includes("--json");
   const verbose = args.includes("--verbose") || args.includes("-v");
   const startMs = Date.now();
 
@@ -197,16 +192,14 @@ Usage: tsx scripts/sync-internships.ts [options]
 
 Options:
   --dry-run      Fetch and report new entries without inserting
-  --write-json   Also rewrite internships.json with fetched data
   --verbose      Extra logging
   --help         Show this help
 
 Env:
-  DATABASE_URL   Postgres connection (from .env). If unset, runs in dry-run/json mode only.
+  DATABASE_URL   Postgres connection (from .env). Required — sync is DB-only.
 
 Examples:
   npx tsx scripts/sync-internships.ts --dry-run
-  npx tsx scripts/sync-internships.ts --write-json
   npm run db:sync
   npm run db:sync:dry
 `);
@@ -237,7 +230,6 @@ Examples:
           status: "failed",
           error: String(e?.message ?? e).slice(0, 2000),
           scrapedUrl: RAW_URL,
-          writeJson,
         });
         await pool.end();
       } catch {}
@@ -246,22 +238,10 @@ Examples:
   }
   console.log(`Found ${scraped.length} rows in README`);
 
-  if (writeJson) {
-    console.log(`Writing ${OUT_PATH}...`);
-    await writeFile(OUT_PATH, JSON.stringify(scraped, null, 2), "utf8");
-    console.log("  done");
-  }
-
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    console.warn("DATABASE_URL not set — skipping DB sync (use --write-json to update file only)");
-    if (!dryRun && !writeJson) {
-      console.log("Tip: run with --dry-run to preview or set DATABASE_URL in .env");
-    }
-    if (dryRun) {
-      console.log(`Dry run: ${scraped.length} scraped entries (no DB to compare)`);
-    }
-    process.exit(0);
+    console.error("DATABASE_URL not set — sync is DB-only. Set it in .env and run npm run db:setup.");
+    process.exit(1);
   }
 
   console.log(`Connecting to DB...`);
@@ -287,7 +267,6 @@ Examples:
         status: "failed",
         error: String(e?.message ?? e).slice(0, 2000),
         scrapedUrl: RAW_URL,
-        writeJson,
       });
     } catch {}
     await pool.end();
@@ -351,7 +330,6 @@ Examples:
       status: "success",
       error: null,
       scrapedUrl: RAW_URL,
-      writeJson,
     });
     await pool.end();
     process.exit(0);
@@ -370,7 +348,6 @@ Examples:
       status: "dry_run",
       error: null,
       scrapedUrl: RAW_URL,
-      writeJson,
     });
     await pool.end();
     process.exit(0);
@@ -430,7 +407,6 @@ Examples:
     status: "success",
     error: null,
     scrapedUrl: RAW_URL,
-    writeJson,
   });
 
   await pool.end();
@@ -454,7 +430,6 @@ main().catch(async (err) => {
         status: "failed",
         error: String(err?.message ?? err).slice(0, 2000),
         scrapedUrl: RAW_URL,
-        writeJson: false,
       });
       await pool.end();
     }

@@ -31,8 +31,8 @@ services:
       NODE_ENV: production
     ports:
       - "3000:3000"
-    # Uncomment to auto-migrate and seed on start via an entrypoint script
-    # command: sh -c "npx drizzle-kit push && npm run db:seed && node server.js"
+    # Uncomment to auto-migrate and sync on start via an entrypoint script
+    # command: sh -c "npx drizzle-kit push && npm run db:sync && node server.js"
 
 volumes:
   postgres_data:

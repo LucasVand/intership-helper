@@ -20,8 +20,6 @@ export default function AppliedPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [metaSource, setMetaSource] = useState<"db" | "json">("json");
-  const [dbAvailable, setDbAvailable] = useState(true);
 
   const fetchApplied = useCallback(async (page: number, append: boolean) => {
     const params = new URLSearchParams();
@@ -38,29 +36,10 @@ export default function AppliedPage() {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      // legacy array mode should not happen because we send page/limit, but handle
-      if (Array.isArray(json)) {
-        const data = (json as Internship[]).filter((d) => d.applied);
-        setInternships((prev) => (append ? [...prev, ...data] : data));
-        setPagination({ page: 1, limit: data.length, total: data.length, totalPages: 1, hasMore: false });
-        setMetaSource("json");
-        setDbAvailable(false);
-        return;
-      }
       const data = json.data as Internship[];
       const paginationRes = json.pagination as Pagination;
-      const source = json.meta?.source as "db" | "json" | undefined;
       setInternships((prev) => (append ? [...prev, ...data] : data));
       setPagination(paginationRes);
-      if (source) {
-        setMetaSource(source);
-        setDbAvailable(source === "db");
-      }
-      // if json fallback and no applied support, dbAvailable false already
-      if (json.meta?.source === "json") {
-        // json fallback has no persistence, so applied will always be 0
-        setDbAvailable(false);
-      }
     } catch (e: any) {
       console.error("fetchApplied failed:", e);
       setError(e?.message ?? "Failed to load applied internships");
@@ -89,7 +68,6 @@ export default function AppliedPage() {
       total: Math.max(0, prev.total - 1),
       totalPages: Math.max(1, Math.ceil(Math.max(0, prev.total - 1) / prev.limit)),
     }));
-    if (!dbAvailable) return;
     try {
       const res = await fetch("/api/internships", {
         method: "PATCH",
@@ -100,22 +78,16 @@ export default function AppliedPage() {
       // success — already removed
     } catch (e) {
       console.error("PATCH failed:", e);
-      if (String(e).includes("503") || String(e).includes("Database not configured")) {
-        setDbAvailable(false);
-      } else {
-        // rollback
-        setInternships((prev) => {
-          // re-insert to keep sort newest first? just append
-          const exists = prev.some((p) => p.id === id);
-          if (exists) return prev;
-          return [...prev, { ...current, applied: true }].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
-        });
-        setPagination((prev) => ({
-          ...prev,
-          total: prev.total + 1,
-          totalPages: Math.max(1, Math.ceil((prev.total + 1) / prev.limit)),
-        }));
-      }
+      setInternships((prev) => {
+        const exists = prev.some((p) => p.id === id);
+        if (exists) return prev;
+        return [...prev, { ...current, applied: true }].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+      });
+      setPagination((prev) => ({
+        ...prev,
+        total: prev.total + 1,
+        totalPages: Math.max(1, Math.ceil((prev.total + 1) / prev.limit)),
+      }));
     }
   };
 
@@ -136,7 +108,7 @@ export default function AppliedPage() {
                   ) : (
                     <>
                       <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> marked as applied
-                      {metaSource === "db" ? " • Postgres" : " • JSON fallback (no persistence)"} • Page {pagination.page}/{pagination.totalPages}
+                      {" • Postgres"} • Page {pagination.page}/{pagination.totalPages}
                     </>
                   )}
                 </p>
@@ -154,11 +126,6 @@ export default function AppliedPage() {
                 </span>
               </div>
             </div>
-            {!dbAvailable && !isLoading && (
-              <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
-                <span className="font-medium">Database not configured</span> — marking as applied requires Postgres. Run <code className="font-mono bg-white/60 dark:bg-black/20 px-1 py-0.5 rounded">npm run db:setup</code> and ensure <code className="font-mono bg-white/60 dark:bg-black/20 px-1 py-0.5 rounded">DATABASE_URL</code> is set. Showing JSON fallback (applied will not persist).
-              </div>
-            )}
             {error && <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm text-red-800 dark:text-red-200">{error}</div>}
           </div>
         </div>
@@ -190,7 +157,7 @@ export default function AppliedPage() {
                 Browse internships
               </Link>
               <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
-                {dbAvailable ? "Applied status is stored in Postgres." : "Start the database to enable persistence."}
+                Applied status is stored in Postgres.
               </p>
             </div>
           </div>
@@ -238,7 +205,7 @@ export default function AppliedPage() {
             <span>
               Applied page • fetched via <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">/api/internships?applied=applied</code>
             </span>
-            <span className="font-mono">{pagination.total} applied • {metaSource} • limit {LIMIT}</span>
+            <span className="font-mono">{pagination.total} applied • db • limit {LIMIT}</span>
           </div>
         </div>
       </footer>

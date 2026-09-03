@@ -7,7 +7,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   if (!db) {
-    return NextResponse.json({ error: "Database not configured" }, { status: 503 });
+    return NextResponse.json(
+      {
+        error:
+          "Database not configured — sync history requires Postgres. Set DATABASE_URL in .env (e.g. postgresql://postgres:postgres@localhost:5432/intership-helper) and run npm run db:setup (or docker compose up -d db && npm run db:migrate). No database connection was available to read sync_runs.",
+      },
+      { status: 503 }
+    );
   }
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
@@ -37,8 +43,19 @@ export async function GET(req: Request) {
     console.error("GET /api/sync-runs failed:", e);
     // table may not exist if migration not run
     if (String(e?.message ?? "").includes("does not exist") || String(e?.code) === "42P01") {
-      return NextResponse.json({ error: "sync_runs table not found — run `npm run db:migrate`" }, { status: 503 });
+      return NextResponse.json(
+        {
+          error:
+            "Database not set up — sync_runs table not found. Run npm run db:migrate (or npm run db:setup) to create the Postgres tables, then re-run the sync script. The database is reachable but the sync history table has not been created yet.",
+        },
+        { status: 503 }
+      );
     }
-    return NextResponse.json({ error: "Failed to fetch sync runs" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: `Failed to fetch sync runs — database may not be set up or not reachable. Check DATABASE_URL and run npm run db:setup. Details: ${String(e?.message ?? e).slice(0, 300)}`,
+      },
+      { status: 500 }
+    );
   }
 }

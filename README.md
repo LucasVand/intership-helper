@@ -1,4 +1,4 @@
-Internships browser for `internships.json` — Next.js 16 + Tailwind + Drizzle ORM + Postgres (Docker).
+Internships browser — Next.js 16 + Tailwind + Drizzle ORM + Postgres (Docker). DB-only; no JSON fallback.
 
 ## Stack
 - Next.js 16 (App Router, `output: standalone` in `next.config.ts:4`)
@@ -10,7 +10,8 @@ Internships browser for `internships.json` — Next.js 16 + Tailwind + Drizzle O
 ```bash
 cp .env.example .env        # edit DATABASE_URL if needed
 npm install
-npm run dev                 # http://localhost:3000 — reads internships.json by default
+npm run db:setup            # create DB and sync internships from remote (required)
+npm run dev                 # http://localhost:3000 — requires DB
 ```
 
 ## Database + Docker
@@ -30,8 +31,8 @@ npm run db:generate   # drizzle-kit generate — creates ./drizzle/*.sql (alread
 npm run db:push       # drizzle-kit push — push schema directly (dev, no SQL)
 npm run db:migrate    # drizzle-kit migrate — apply generated SQL
 npm run db:studio     # drizzle-kit studio --port 4983 — GUI on http://localhost:4983
-npm run db:seed       # tsx scripts/seed.ts — inserts internships.json (1072 rows, batch 500)
-npm run db:seed:clear # clears table then seeds
+npm run db:sync       # tsx scripts/sync-internships.ts — fetches SimplifyJobs README and upserts (insert + flag backfill)
+npm run db:sync:dry   # dry-run without DB writes
 ```
 
 **Docker** (requires Docker daemon):
@@ -41,10 +42,10 @@ npm run docker:down   # docker compose down
 # or manually:
 docker compose up -d db             # only postgres on :5432
 npx drizzle-kit migrate             # apply migrations
-npm run db:seed
+npm run db:sync       # fetch and insert new internships
 ```
 
-API: `GET /api/internships` (`app/api/internships/route.ts:1`) — tries DB first, falls back to `internships.json` if `DATABASE_URL` unset or query fails.
+API: `GET /api/internships` (`app/api/internships/route.ts:1`) — DB-only (503 if `DATABASE_URL` not set). Run `npm run db:setup` first.
 
 ## Scripts
 - `npm run dev` / `build` / `start` / `lint`

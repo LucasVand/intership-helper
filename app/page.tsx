@@ -43,10 +43,9 @@ export default function Home() {
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: LIMIT, total: 0, totalPages: 1, hasMore: false });
   const [stats, setStats] = useState<Stats>({ total: 0, applied: 0, notApplied: 0 });
   const [facets, setFacets] = useState<{ ages: string[] }>({ ages: [] });
-  const [metaSource, setMetaSource] = useState<"db" | "json">("json");
+  const metaSource = "db";
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [dbAvailable, setDbAvailable] = useState(false);
 
   const [query, setQuery] = useState("");
   const [queryInput, setQueryInput] = useState("");
@@ -121,31 +120,21 @@ export default function Home() {
       else setIsLoading(true);
       try {
         const res = await fetch(url, { signal: ctrl.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (Array.isArray(json)) {
-          const data = json as Internship[];
-          setInternships((prev) => (append ? [...prev, ...data] : data));
-          setPagination({ page: 1, limit: data.length, total: data.length, totalPages: 1, hasMore: false });
-          setStats({ total: data.length, applied: data.filter((d) => d.applied).length, notApplied: data.filter((d) => !d.applied).length });
-          setFacets({ ages: Array.from(new Set(data.map((d) => d.age).filter(Boolean) as string[])).sort() });
-          setMetaSource("json");
-          setDbAvailable(false);
-          return;
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || `HTTP ${res.status}`);
         }
+        const json = await res.json();
         const data = json.data as Internship[];
         const paginationRes = json.pagination as Pagination;
         const statsRes = json.stats as Stats;
         const facetsRes = json.facets as { ages: string[] };
-        const source = json.meta?.source as "db" | "json" | undefined;
+        const source = json.meta?.source as "db" | undefined;
         setInternships((prev) => (append ? [...prev, ...data] : data));
         setPagination(paginationRes);
         if (statsRes) setStats(statsRes);
         if (facetsRes) setFacets(facetsRes);
-        if (source) {
-          setMetaSource(source);
-          setDbAvailable(source === "db");
-        } else setDbAvailable(true);
+        if (source && source !== "db") throw new Error("Unexpected data source");
       } catch (e: any) {
         if (e?.name === "AbortError") return;
         console.error("fetchPage failed:", e);
@@ -332,7 +321,6 @@ export default function Home() {
       const delta = nextApplied ? 1 : -1;
       return { total: prev.total, applied: prev.applied + delta, notApplied: prev.notApplied - delta };
     });
-    if (!dbAvailable) return;
     try {
       const res = await fetch("/api/internships", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, applied: nextApplied }) });
       if (!res.ok) throw new Error(await res.text());
@@ -341,11 +329,8 @@ export default function Home() {
       setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: Boolean(data.applied) } : i)));
     } catch (e) {
       console.error("PATCH failed:", e);
-      if (String(e).includes("503") || String(e).includes("Database not configured")) setDbAvailable(false);
-      else {
-        setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
-        setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
-      }
+      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
+      setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
     }
   };
 
@@ -380,7 +365,7 @@ export default function Home() {
                     display: p > 0.85 ? "none" : undefined,
                   }}
                 >
-                  Browse <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> internships{stats.applied > 0 && <> • <Link href="/applied" className="font-medium text-emerald-700 dark:text-emerald-300 hover:underline underline-offset-4">{stats.applied} applied</Link></>} . <span style={{ opacity: 1 - p * 0.8, display: p > 0.7 ? "none" : "inline" }}>{metaSource === "db" ? "Backend paginated (Postgres)." : isLoading ? "Loading…" : "Backend paginated (JSON fallback)."}</span> {pagination.total > 0 && <span className="ml-1 text-zinc-500 dark:text-zinc-500" style={{ opacity: 1 - p, display: p > 0.5 ? "none" : "inline" }}>Page {pagination.page}/{pagination.totalPages} • {LIMIT}/page</span>}</p>
+                  Browse <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> internships{stats.applied > 0 && <> • <Link href="/applied" className="font-medium text-emerald-700 dark:text-emerald-300 hover:underline underline-offset-4">{stats.applied} applied</Link></>} . <span style={{ opacity: 1 - p * 0.8, display: p > 0.7 ? "none" : "inline" }}>Backend paginated (Postgres).</span> {pagination.total > 0 && <span className="ml-1 text-zinc-500 dark:text-zinc-500" style={{ opacity: 1 - p, display: p > 0.5 ? "none" : "inline" }}>Page {pagination.page}/{pagination.totalPages} • {LIMIT}/page</span>}</p>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <button
