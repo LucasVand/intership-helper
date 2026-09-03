@@ -1,69 +1,632 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { InternshipCard, type Internship, type TagKey } from "./components/InternshipCard";
+
+type Keyword = {
+  id: number;
+  keyword: string;
+  created_at?: string;
+};
+
+type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+};
+
+type Stats = {
+  total: number;
+  applied: number;
+  notApplied: number;
+};
+
+const LIMIT = 48;
+const TOP_PICKS_LIMIT = 6;
+
+type SortKey = "newest" | "oldest" | "company" | "role";
+type AppliedFilter = "all" | "applied" | "not_applied";
+type TagFilter = "all" | "only" | "exclude";
+const TAG_DEFS: Array<{ key: TagKey; label: string; icon: string; activeClasses: string; dotClasses: string }> = [
+  { key: "is_faang", label: "FAANG+", icon: "🔥", activeClasses: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800", dotClasses: "bg-orange-500" },
+  { key: "requires_advanced_degree", label: "Advanced degree", icon: "🎓", activeClasses: "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800", dotClasses: "bg-purple-500" },
+  { key: "no_sponsorship", label: "No sponsorship", icon: "🛂", activeClasses: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800", dotClasses: "bg-red-500" },
+  { key: "requires_citizenship", label: "U.S. Citizenship", icon: "🇺🇸", activeClasses: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800", dotClasses: "bg-blue-500" },
+  { key: "is_closed", label: "Closed", icon: "🔒", activeClasses: "bg-zinc-100 text-zinc-700 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700", dotClasses: "bg-zinc-500" },
+];
 
 export default function Home() {
+  const [internships, setInternships] = useState<Internship[]>([]);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: LIMIT, total: 0, totalPages: 1, hasMore: false });
+  const [stats, setStats] = useState<Stats>({ total: 0, applied: 0, notApplied: 0 });
+  const [facets, setFacets] = useState<{ ages: string[] }>({ ages: [] });
+  const [metaSource, setMetaSource] = useState<"db" | "json">("json");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [dbAvailable, setDbAvailable] = useState(false);
+
+  const [query, setQuery] = useState("");
+  const [queryInput, setQueryInput] = useState("");
+  const [ageFilter, setAgeFilter] = useState<string>("all");
+  const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>("all");
+  const [sort, setSort] = useState<SortKey>("newest");
+  const [tagFilters, setTagFilters] = useState<Record<TagKey, TagFilter>>({
+    is_faang: "all",
+    is_closed: "all",
+    no_sponsorship: "all",
+    requires_citizenship: "all",
+    requires_advanced_degree: "all",
+  });
+
+  // Top Picks + Keywords
+  const [keywords, setKeywords] = useState<Keyword[]>([]);
+  const [topPicks, setTopPicks] = useState<Internship[]>([]);
+  const [topPicksMeta, setTopPicksMeta] = useState<{ totalMatching: number; limit: number; source: string } | null>(null);
+  const [isTopPicksLoading, setIsTopPicksLoading] = useState(false);
+  const [showKeywordsManager, setShowKeywordsManager] = useState(false);
+  const [newKeyword, setNewKeyword] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+  const [keywordError, setKeywordError] = useState<string | null>(null);
+  const [keywordBusy, setKeywordBusy] = useState(false);
+
+  const abortRef = useRef<AbortController | null>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(queryInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [queryInput]);
+
+  useEffect(() => {
+    const maxScroll = 80; // px to fully compact
+    let ticking = false;
+    const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+    const update = () => {
+      const y = window.scrollY;
+      const p = clamp(y / maxScroll, 0, 1);
+      setScrollProgress(p);
+      ticking = false;
+    };
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const fetchPage = useCallback(
+    async (page: number, append: boolean) => {
+      if (abortRef.current) abortRef.current.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      const params = new URLSearchParams();
+      if (query) params.set("q", query);
+      if (ageFilter !== "all") params.set("age", ageFilter);
+      if (appliedFilter !== "all") params.set("applied", appliedFilter);
+      if (sort !== "newest") params.set("sort", sort);
+      (Object.keys(tagFilters) as TagKey[]).forEach((k) => {
+        if (tagFilters[k] !== "all") params.set(k, tagFilters[k]);
+      });
+      params.set("page", String(page));
+      params.set("limit", String(LIMIT));
+      const url = `/api/internships?${params.toString()}`;
+      if (append) setIsLoadingMore(true);
+      else setIsLoading(true);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (Array.isArray(json)) {
+          const data = json as Internship[];
+          setInternships((prev) => (append ? [...prev, ...data] : data));
+          setPagination({ page: 1, limit: data.length, total: data.length, totalPages: 1, hasMore: false });
+          setStats({ total: data.length, applied: data.filter((d) => d.applied).length, notApplied: data.filter((d) => !d.applied).length });
+          setFacets({ ages: Array.from(new Set(data.map((d) => d.age).filter(Boolean) as string[])).sort() });
+          setMetaSource("json");
+          setDbAvailable(false);
+          return;
+        }
+        const data = json.data as Internship[];
+        const paginationRes = json.pagination as Pagination;
+        const statsRes = json.stats as Stats;
+        const facetsRes = json.facets as { ages: string[] };
+        const source = json.meta?.source as "db" | "json" | undefined;
+        setInternships((prev) => (append ? [...prev, ...data] : data));
+        setPagination(paginationRes);
+        if (statsRes) setStats(statsRes);
+        if (facetsRes) setFacets(facetsRes);
+        if (source) {
+          setMetaSource(source);
+          setDbAvailable(source === "db");
+        } else setDbAvailable(true);
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        console.error("fetchPage failed:", e);
+      } finally {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
+    },
+    [query, ageFilter, appliedFilter, sort, tagFilters]
+  );
+
+  useEffect(() => {
+    fetchPage(1, false);
+  }, [fetchPage]);
+
+  const fetchKeywords = useCallback(async () => {
+    try {
+      const res = await fetch("/api/keywords");
+      if (!res.ok) {
+        if (res.status === 503) setKeywords([]);
+        return;
+      }
+      const data = (await res.json()) as Keyword[];
+      setKeywords(data);
+    } catch (e) {
+      console.error("fetchKeywords failed:", e);
+    }
+  }, []);
+
+  const fetchTopPicks = useCallback(async () => {
+    setIsTopPicksLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", String(TOP_PICKS_LIMIT));
+      (Object.keys(tagFilters) as TagKey[]).forEach((k) => {
+        if (tagFilters[k] !== "all") params.set(k, tagFilters[k]);
+      });
+      const res = await fetch(`/api/top-picks?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setTopPicks(json.data as Internship[]);
+      setTopPicksMeta({ totalMatching: json.meta?.totalMatching ?? json.data.length, limit: json.meta?.limit ?? TOP_PICKS_LIMIT, source: json.meta?.source ?? "json" });
+      if (json.keywords) {
+        // keep keywords in sync if backend is source of truth, but don't overwrite local edits in flight
+        // we already fetch keywords separately, so just ensure consistency
+      }
+    } catch (e) {
+      console.error("fetchTopPicks failed:", e);
+    } finally {
+      setIsTopPicksLoading(false);
+    }
+  }, [tagFilters]);
+
+  useEffect(() => {
+    fetchKeywords();
+  }, [fetchKeywords]);
+
+  useEffect(() => {
+    fetchTopPicks();
+  }, [fetchTopPicks]);
+
+  // Refetch top picks when keywords change (after add/edit/delete)
+  useEffect(() => {
+    // avoid double fetch on initial mount (already fetched), but fetching again is cheap
+    // we debounce slightly to avoid race with fetchKeywords
+    const t = setTimeout(() => fetchTopPicks(), 50);
+    return () => clearTimeout(t);
+  }, [keywords.length, fetchTopPicks]);
+
+  const handleAddKeyword = async () => {
+    const v = newKeyword.trim();
+    if (!v) return;
+    if (v.length > 100) { setKeywordError("Max 100 chars"); return; }
+    if (keywords.some((k) => k.keyword.toLowerCase() === v.toLowerCase())) { setKeywordError("Already exists"); return; }
+    setKeywordBusy(true);
+    setKeywordError(null);
+    try {
+      const res = await fetch("/api/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keyword: v }) });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      const created = (await res.json()) as Keyword;
+      setKeywords((prev) => [...prev, created].sort((a, b) => a.keyword.localeCompare(b.keyword)));
+      setNewKeyword("");
+      fetchTopPicks();
+    } catch (e: any) {
+      setKeywordError(e.message || "Failed to add");
+    } finally {
+      setKeywordBusy(false);
+    }
+  };
+
+  const handleDeleteKeyword = async (id: number) => {
+    setKeywordBusy(true);
+    try {
+      const res = await fetch(`/api/keywords?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      setKeywords((prev) => prev.filter((k) => k.id !== id));
+      fetchTopPicks();
+    } catch (e: any) {
+      setKeywordError(e.message || "Failed to delete");
+    } finally {
+      setKeywordBusy(false);
+    }
+  };
+
+  const handleEditKeyword = async (id: number) => {
+    const v = editingValue.trim();
+    if (!v) { setKeywordError("Keyword required"); return; }
+    if (keywords.some((k) => k.id !== id && k.keyword.toLowerCase() === v.toLowerCase())) { setKeywordError("Already exists"); return; }
+    setKeywordBusy(true);
+    try {
+      const res = await fetch("/api/keywords", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, keyword: v }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      const updated = (await res.json()) as Keyword;
+      setKeywords((prev) => prev.map((k) => (k.id === id ? updated : k)).sort((a, b) => a.keyword.localeCompare(b.keyword)));
+      setEditingId(null);
+      setEditingValue("");
+      setKeywordError(null);
+      fetchTopPicks();
+    } catch (e: any) {
+      setKeywordError(e.message || "Failed to update");
+    } finally {
+      setKeywordBusy(false);
+    }
+  };
+
+  const handleQueryInputChange = (v: string) => setQueryInput(v);
+  const handleAgeChange = (v: string) => setAgeFilter(v);
+  const handleAppliedChange = (v: AppliedFilter) => setAppliedFilter(v);
+  const handleSortChange = (v: SortKey) => setSort(v);
+  const handleLoadMore = () => {
+    if (!pagination.hasMore || isLoadingMore) return;
+    fetchPage(pagination.page + 1, true);
+  };
+  const handleClear = () => {
+    setQueryInput("");
+    setQuery("");
+    setAgeFilter("all");
+    setAppliedFilter("all");
+    setSort("newest");
+    setTagFilters({
+      is_faang: "all",
+      is_closed: "all",
+      no_sponsorship: "all",
+      requires_citizenship: "all",
+      requires_advanced_degree: "all",
+    });
+  };
+  const handleTagFilterChange = (key: TagKey, value: TagFilter) => {
+    setTagFilters((prev) => ({ ...prev, [key]: value }));
+  };
+  const cycleTagFilter = (key: TagKey) => {
+    setTagFilters((prev) => {
+      const cur = prev[key];
+      const next: TagFilter = cur === "all" ? "exclude" : cur === "exclude" ? "only" : "all";
+      return { ...prev, [key]: next };
+    });
+  };
+  const hasActiveTagFilters = (Object.values(tagFilters) as TagFilter[]).some((v) => v !== "all");
+  const activeTagCount = (Object.values(tagFilters) as TagFilter[]).filter((v) => v !== "all").length;
+  const handleCardTagClick = (key: TagKey) => {
+    // clicking a badge focuses to "only" that tag — click again to clear
+    setTagFilters((prev) => {
+      const cur = prev[key];
+      if (cur === "only") return { ...prev, [key]: "all" };
+      return { ...prev, [key]: "only" };
+    });
+    // scroll to top so user sees filter applied
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const toggleApplied = async (id: number) => {
+    // also need to check topPicks list
+    const current = internships.find((i) => i.id === id) ?? topPicks.find((i) => i.id === id);
+    if (!current) return;
+    const nextApplied = !current.applied;
+    const updateList = (list: Internship[]) => list.map((i) => (i.id === id ? { ...i, applied: nextApplied } : i));
+    setInternships((prev) => updateList(prev));
+    setTopPicks((prev) => updateList(prev));
+    setStats((prev) => {
+      if (appliedFilter !== "all") return prev;
+      const delta = nextApplied ? 1 : -1;
+      return { total: prev.total, applied: prev.applied + delta, notApplied: prev.notApplied - delta };
+    });
+    if (!dbAvailable) return;
+    try {
+      const res = await fetch("/api/internships", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, applied: nextApplied }) });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: Boolean(data.applied) } : i)));
+      setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: Boolean(data.applied) } : i)));
+    } catch (e) {
+      console.error("PATCH failed:", e);
+      if (String(e).includes("503") || String(e).includes("Database not configured")) setDbAvailable(false);
+      else {
+        setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
+        setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
+      }
+    }
+  };
+
+  // scroll-linked header metrics (0 = expanded, 1 = compact) — linear scrub from 0..80px
+  const p = scrollProgress;
+  const headerShadowOpacity = p * 0.08;
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-full bg-zinc-50 dark:bg-zinc-950">
+      <header
+        className="sticky top-0 z-30 backdrop-blur-xl border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80"
+        style={{
+          boxShadow: p > 0.01 ? `0 1px 8px rgba(0,0,0,${headerShadowOpacity})` : undefined,
+        }}
+      >
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col" style={{ gap: `${16 - p * 8}px`, paddingTop: `${20 - p * 10}px`, paddingBottom: `${20 - p * 10}px` }}>
+            <div className="flex flex-wrap items-start justify-between" style={{ gap: `${16 - p * 8}px` }}>
+              <div className="min-w-0">
+                <h1
+                  className="font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+                  style={{ fontSize: `${30 - p * 10}px`, lineHeight: `${36 - p * 10}px` }}
+                >
+                  Internships <span className="font-normal text-zinc-500 dark:text-zinc-400">Summer 2027</span>
+                </h1>
+                <p
+                  className="text-zinc-600 dark:text-zinc-400 max-w-2xl overflow-hidden"
+                  style={{
+                    marginTop: `${6 - p * 4}px`,
+                    fontSize: `${14 - p * 2}px`,
+                    opacity: 1 - p * 0.15,
+                    maxHeight: `${80 - p * 55}px`,
+                    display: p > 0.85 ? "none" : undefined,
+                  }}
+                >
+                  Browse <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> internships{stats.applied > 0 && <> • <span className="font-medium text-emerald-700 dark:text-emerald-300">{stats.applied} applied</span></>} . <span style={{ opacity: 1 - p * 0.8, display: p > 0.7 ? "none" : "inline" }}>{metaSource === "db" ? "Backend paginated (Postgres)." : isLoading ? "Loading…" : "Backend paginated (JSON fallback)."}</span> {pagination.total > 0 && <span className="ml-1 text-zinc-500 dark:text-zinc-500" style={{ opacity: 1 - p, display: p > 0.5 ? "none" : "inline" }}>Page {pagination.page}/{pagination.totalPages} • {LIMIT}/page</span>}</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  onClick={() => setShowKeywordsManager(true)}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 dark:bg-white font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100"
+                  style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}
+                >
+                  ★ Top Picks • {keywords.length} keywords
+                </button>
+                <span
+                  className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400"
+                  style={{ padding: `${4 + (1 - p) * 4}px ${8 + (1 - p) * 4}px`, fontSize: `${11 + (1 - p) * 1}px` }}
+                >
+                  <span className={`h-2 w-2 rounded-full ${isLoading ? "bg-amber-500 animate-pulse" : "bg-emerald-500 animate-pulse"}`} />{pagination.total.toLocaleString()} results{query || ageFilter !== "all" || appliedFilter !== "all" || hasActiveTagFilters ? " (filtered)" : ""}{hasActiveTagFilters ? ` • ${activeTagCount} tag` : ""}
+                </span>
+                <span className="inline-flex sm:hidden rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400" style={{ padding: `${4 + (1 - p) * 4}px ${8 + (1 - p) * 4}px`, fontSize: `${11 + (1 - p) * 1}px` }}>{pagination.total} results</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col lg:flex-row" style={{ gap: `${12 - p * 4}px` }}>
+              <div className="relative flex-1">
+                <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 111 0-7.5 7.5 0 01-1 0z" /></svg>
+                <input
+                  value={queryInput}
+                  onChange={(e) => handleQueryInputChange(e.target.value)}
+                  placeholder="Search company, role, or location… (backend search)"
+                  className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pl-10 pr-4 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-white/10 focus:border-zinc-300 dark:focus:border-zinc-700"
+                  style={{ paddingTop: `${8 + (1 - p) * 2}px`, paddingBottom: `${8 + (1 - p) * 2}px` }}
+                />
+                {queryInput && <button onClick={() => { setQueryInput(""); setQuery(""); }} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Clear search"><svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg></button>}
+              </div>
+              <div className="flex flex-wrap gap-2 sm:gap-3">
+                <div className="relative"><select value={ageFilter} onChange={(e) => handleAgeChange(e.target.value)} className="appearance-none rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pl-3 pr-8 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-white/10" style={{ paddingTop: `${8 + (1 - p) * 2}px`, paddingBottom: `${8 + (1 - p) * 2}px` }}><option value="all">All ages</option>{facets.ages.map((a) => <option key={a} value={a}>{a} {a === "0d" ? "(Today)" : ""}</option>)}</select><svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg></div>
+                <div className="relative"><select value={appliedFilter} onChange={(e) => handleAppliedChange(e.target.value as AppliedFilter)} className="appearance-none rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pl-3 pr-8 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-white/10" style={{ paddingTop: `${8 + (1 - p) * 2}px`, paddingBottom: `${8 + (1 - p) * 2}px` }}><option value="all">All • {stats.total}</option><option value="not_applied">Not applied • {stats.notApplied}</option><option value="applied">Applied • {stats.applied}</option></select><svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg></div>
+                <div className="relative flex-1 sm:flex-initial min-w-[150px]"><select value={sort} onChange={(e) => handleSortChange(e.target.value as SortKey)} className="w-full appearance-none rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pl-3 pr-8 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-white/10" style={{ paddingTop: `${8 + (1 - p) * 2}px`, paddingBottom: `${8 + (1 - p) * 2}px` }}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="company">Company A–Z</option><option value="role">Role A–Z</option></select><svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg></div>
+                {(query || ageFilter !== "all" || appliedFilter !== "all" || sort !== "newest" || hasActiveTagFilters) && <button onClick={handleClear} className="hidden sm:inline-flex items-center rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800" style={{ padding: `${8 + (1 - p) * 2}px ${12 + (1 - p) * 2}px`, fontSize: "14px" }}>Clear</button>}
+              </div>
+            </div>
+            {/* Tag filters — backend-filtered, shared for main list + Top Picks — scroll-linked */}
+            <div className="flex flex-wrap items-center" style={{ gap: `${8 - p * 2}px` }}>
+              <span className="font-medium text-zinc-700 dark:text-zinc-300" style={{ fontSize: `${12 - p * 1}px` }}>Filter tags:</span>
+              {TAG_DEFS.map((def) => {
+                const v = tagFilters[def.key];
+                const isAll = v === "all";
+                const isOnly = v === "only";
+                const isExclude = v === "exclude";
+                return (
+                  <button
+                    key={def.key}
+                    onClick={() => cycleTagFilter(def.key)}
+                    title={`Click to cycle: All → Hide → Only → All (current: ${v})`}
+                    className={`inline-flex items-center rounded-full border font-medium ${
+                      isOnly
+                        ? def.activeClasses
+                        : isExclude
+                          ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700 line-through decoration-zinc-400"
+                          : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                    }`}
+                    style={{
+                      padding: `${4 + (1 - p) * 2}px ${8 + (1 - p) * 4}px`,
+                      fontSize: `${11 + (1 - p) * 1}px`,
+                      gap: `${4 + (1 - p) * 2}px`,
+                    }}
+                  >
+                    <span>{def.icon}</span>
+                    <span>{def.label}</span>
+                    <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${isOnly ? "bg-white/60 dark:bg-black/20" : isExclude ? "bg-zinc-200 dark:bg-zinc-700" : "bg-zinc-100 dark:bg-zinc-800"}`}>{isAll ? "All" : isOnly ? "Only" : "Hide"}</span>
+                  </button>
+                );
+              })}
+              {hasActiveTagFilters && (
+                <button onClick={() => setTagFilters({ is_faang: "all", is_closed: "all", no_sponsorship: "all", requires_citizenship: "all", requires_advanced_degree: "all" })} className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 underline underline-offset-4">
+                  Clear tags
+                </button>
+              )}
+              <span className="text-zinc-400 dark:text-zinc-500 hidden sm:inline" style={{ fontSize: `${11 - p * 1}px`, opacity: 1 - p * 0.5, display: p > 0.7 ? "none" : undefined }}>— click to cycle All → Hide → Only</span>
+            </div>
+            {(query || ageFilter !== "all" || appliedFilter !== "all" || hasActiveTagFilters) && <div className="flex flex-wrap gap-2 text-xs">{query && <span className="inline-flex items-center gap-1 rounded-full bg-zinc-900 dark:bg-white px-3 py-1 font-medium text-white dark:text-zinc-900">&quot;{query}&quot;<button onClick={() => { setQueryInput(""); setQuery(""); }} className="ml-1 rounded-full hover:bg-white/20 dark:hover:bg-black/10 p-0.5"><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg></button></span>}{ageFilter !== "all" && <span className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-1 font-medium text-zinc-700 dark:text-zinc-300">{ageFilter}<button onClick={() => handleAgeChange("all")} className="ml-1 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 p-0.5"><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg></button></span>}{appliedFilter !== "all" && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 px-3 py-1 font-medium text-emerald-800 dark:text-emerald-300">{appliedFilter === "applied" ? "Applied" : "Not applied"}<button onClick={() => handleAppliedChange("all")} className="ml-1 rounded-full hover:bg-emerald-100 dark:hover:bg-emerald-900 p-0.5"><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg></button></span>}{(Object.keys(tagFilters) as TagKey[]).filter((k) => tagFilters[k] !== "all").map((k) => {
+                const def = TAG_DEFS.find((d) => d.key === k)!;
+                const v = tagFilters[k];
+                return (
+                  <span key={k} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 font-medium ${v === "only" ? def.activeClasses : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700"}`}>
+                    <span>{def.icon}</span>{def.label} — {v === "only" ? "Only" : "Hide"}<button onClick={() => handleTagFilterChange(k, "all")} className="ml-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10 p-0.5"><svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg></button>
+                  </span>
+                );
+              })}</div>}
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </header>
+
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-4">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+          <span className="font-medium text-zinc-900 dark:text-zinc-100">Legend:</span>
+          {TAG_DEFS.map((def) => {
+            const v = tagFilters[def.key];
+            const isOnly = v === "only";
+            const isExclude = v === "exclude";
+            return (
+              <button
+                key={def.key}
+                onClick={() => cycleTagFilter(def.key)}
+                title={`Filter: click to cycle All → Hide → Only (now: ${v})`}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${isOnly ? def.activeClasses : isExclude ? "bg-zinc-100 text-zinc-500 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 line-through" : def.activeClasses + " opacity-80 hover:opacity-100"}`}
+              >
+                <span>{def.icon}</span>{def.label}
+                {v !== "all" && <span className="ml-1 text-[10px] font-bold">{v === "only" ? "● Only" : "○ Hide"}</span>}
+              </button>
+            );
+          })}
+          <span className="text-zinc-500 dark:text-zinc-500">— click to filter (shared for Top Picks + list)</span>
+          {hasActiveTagFilters && <button onClick={() => setTagFilters({ is_faang: "all", is_closed: "all", no_sponsorship: "all", requires_citizenship: "all", requires_advanced_degree: "all" })} className="ml-1 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 underline">Clear</button>}
         </div>
+      </div>
+
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-8">
+        {/* Top Picks */}
+        <section className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20 p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center gap-2"><span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white text-xs">★</span> Top Picks <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">most recent matching your keywords</span></h2>
+              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">Matches <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">{keywords.length ? keywords.map((k) => k.keyword).join(", ") : "—"}</span> in company / role / location (case-insensitive). <span className="hidden sm:inline">Sorted newest first.</span></p>
+            </div>
+            <button onClick={() => setShowKeywordsManager(true)} className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 dark:bg-white px-4 py-2 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100">Manage keywords — {keywords.length}</button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {keywords.length ? keywords.map((k) => <span key={k.id} className="inline-flex items-center rounded-full bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-800 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">{k.keyword}</span>) : <span className="text-xs text-zinc-500 dark:text-zinc-400">No keywords yet — add one to see top picks.</span>}
+          </div>
+          {/* Tag filters inside Top Picks — same state as main list, backend-filtered */}
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-800 bg-white/70 dark:bg-zinc-900/50 px-3 py-2.5">
+            <span className="text-xs font-medium text-amber-900 dark:text-amber-100">Filter Top Picks:</span>
+            {TAG_DEFS.map((def) => {
+              const v = tagFilters[def.key];
+              const isOnly = v === "only";
+              const isExclude = v === "exclude";
+              return (
+                <button
+                  key={def.key}
+                  onClick={() => cycleTagFilter(def.key)}
+                  title={`Top Picks filter: ${def.label} — click to cycle All → Hide → Only (now: ${v})`}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    isOnly
+                      ? def.activeClasses
+                      : isExclude
+                        ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700 line-through"
+                        : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-amber-200 dark:border-zinc-700 hover:bg-amber-50 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <span>{def.icon}</span>{def.label}
+                  <span className={`ml-0.5 rounded-full px-1 py-0.5 text-[10px] leading-none ${isOnly ? "bg-black/10 dark:bg-white/10" : isExclude ? "bg-zinc-200 dark:bg-zinc-700" : "bg-amber-100 dark:bg-zinc-800"}`}>{v === "all" ? "All" : v === "only" ? "Only" : "Hide"}</span>
+                </button>
+              );
+            })}
+            {hasActiveTagFilters && <span className="text-[11px] text-amber-700 dark:text-amber-300">{activeTagCount} filter{activeTagCount !== 1 ? "s" : ""} active • affects both lists</span>}
+          </div>
+          <div className="mt-5">
+            {isTopPicksLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"><div className="h-40 rounded-xl bg-white/60 dark:bg-zinc-900/40 animate-pulse" /><div className="h-40 rounded-xl bg-white/60 dark:bg-zinc-900/40 animate-pulse" /><div className="h-40 rounded-xl bg-white/60 dark:bg-zinc-900/40 animate-pulse" /></div>
+            ) : topPicks.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-amber-200 dark:border-amber-800 bg-white dark:bg-zinc-900 p-6 text-center">
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{keywords.length ? `No matches for current keywords (${topPicksMeta?.totalMatching ?? 0} total)` : "Add keywords to populate Top Picks"}</p>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{keywords.length ? "Try broader keywords like \"Google\" or \"Engineer\" / \"Remote\"" : "Example: Goldman, NVIDIA, Backend, London"}</p>
+                <button onClick={() => setShowKeywordsManager(true)} className="mt-3 rounded-full bg-amber-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-600">Add keyword</button>
+              </div>
+            ) : (
+              <>
+                <div className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">Showing {topPicks.length} of {topPicksMeta?.totalMatching ?? topPicks.length} most recent • limit {TOP_PICKS_LIMIT}</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {topPicks.map((job) => <InternshipCard key={`top-${job.id}`} job={job} onToggle={toggleApplied} onTagClick={handleCardTagClick} />)}
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+
+        {isLoading && internships.length === 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="animate-pulse rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 h-48" />)}</div>
+        ) : internships.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-12 text-center">
+            <div className="mx-auto max-w-sm">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800"><svg className="h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg></div>
+              <h3 className="mt-4 text-sm font-semibold text-zinc-900 dark:text-zinc-100">No internships found</h3>
+              <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">Try adjusting your search or filters. Backend pagination returned 0 for page {pagination.page}.</p>
+              <button onClick={handleClear} className="mt-4 rounded-full bg-zinc-900 dark:bg-white px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100">Clear filters</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400"><span>Showing <span className="font-medium text-zinc-900 dark:text-zinc-100">{internships.length.toLocaleString()}</span> of <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> • page {pagination.page}/{pagination.totalPages} • {metaSource} • limit {LIMIT}</span><span className="hidden sm:inline">Backend paginated • {facets.ages.length} ages</span></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
+              {internships.map((job) => <InternshipCard key={job.id} job={job} onToggle={toggleApplied} showLegend onTagClick={handleCardTagClick} />)}
+            </div>
+            {pagination.hasMore && <div className="flex justify-center"><button onClick={handleLoadMore} disabled={isLoadingMore} className="rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-2.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 shadow-sm disabled:opacity-50">{isLoadingMore ? "Loading…" : `Load more — ${pagination.total - internships.length} remaining`}</button></div>}
+            <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 dark:text-zinc-400"><span>Page {pagination.page} of {pagination.totalPages}</span><span>•</span><span>{pagination.hasMore ? "More pages via backend" : "End of results"}</span><span>•</span><span>limit={LIMIT} offset={(pagination.page - 1) * LIMIT}</span></div>
+            <p className="text-center text-xs text-zinc-400 dark:text-zinc-500">{pagination.total} internships • backend paginated • sorted by {sort} • {ageFilter === "all" ? "all ages" : ageFilter} • {appliedFilter === "all" ? "all" : appliedFilter}{hasActiveTagFilters ? ` • tags: ${(Object.entries(tagFilters) as [TagKey, TagFilter][]).filter(([, v]) => v !== "all").map(([k, v]) => `${k}=${v}`).join(", ")}` : ""}</p>
+          </>
+        )}
       </main>
+
+      {showKeywordsManager && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowKeywordsManager(false)} aria-label="Close" />
+          <div className="relative w-full max-w-lg rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-5 py-4">
+              <div><h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Top Picks Keywords</h3><p className="text-xs text-zinc-500 dark:text-zinc-400">Global — saved in Postgres <code className="font-mono">top_pick_keywords</code>. Matches company / role / location (case-insensitive).</p></div>
+              <button onClick={() => setShowKeywordsManager(false)} className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-600"><svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg></button>
+            </div>
+            <div className="p-5 space-y-4 overflow-auto">
+              <div className="flex gap-2">
+                <input value={newKeyword} onChange={(e) => setNewKeyword(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleAddKeyword(); }} placeholder="Add keyword e.g. Google, Backend, London" className="flex-1 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10" />
+                <button onClick={handleAddKeyword} disabled={keywordBusy || !newKeyword.trim()} className="rounded-xl bg-zinc-900 dark:bg-white px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 disabled:opacity-50 hover:bg-zinc-800 dark:hover:bg-zinc-100">Add</button>
+              </div>
+              {keywordError && <p className="text-xs text-red-600 dark:text-red-400">{keywordError}</p>}
+              <div className="space-y-2">
+                {keywords.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">No keywords yet. Add one above — top picks will show most recent matching internships.</p>
+                ) : (
+                  keywords.map((k) => (
+                    <div key={k.id} className="flex items-center gap-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2">
+                      {editingId === k.id ? (
+                        <>
+                          <input value={editingValue} onChange={(e) => setEditingValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleEditKeyword(k.id); if (e.key === "Escape") { setEditingId(null); setKeywordError(null); } }} className="flex-1 rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 py-1.5 text-sm" autoFocus />
+                          <button onClick={() => handleEditKeyword(k.id)} disabled={keywordBusy} className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Save</button>
+                          <button onClick={() => { setEditingId(null); setKeywordError(null); }} className="rounded-full border border-zinc-300 dark:border-zinc-600 px-3 py-1.5 text-xs">Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{k.keyword}</span>
+                          <button onClick={() => { setEditingId(k.id); setEditingValue(k.keyword); setKeywordError(null); }} className="rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800">Edit</button>
+                          <button onClick={() => handleDeleteKeyword(k.id)} disabled={keywordBusy} className="rounded-full bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-300 hover:bg-red-100 disabled:opacity-50">Remove</button>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Changes save to Postgres immediately and reorder Top Picks by most recent (age 0d first). Deleting a keyword instantly removes it from the query.</p>
+            </div>
+            <div className="flex items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-5 py-3 text-xs text-zinc-500 dark:text-zinc-400"><span>{keywords.length} keyword{keywords.length !== 1 ? "s" : ""} • Top picks limit {TOP_PICKS_LIMIT}</span><button onClick={() => setShowKeywordsManager(false)} className="rounded-full bg-zinc-900 dark:bg-white px-4 py-1.5 text-xs font-medium text-white dark:text-zinc-900">Done</button></div>
+          </div>
+        </div>
+      )}
+
+      <footer className="border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-500 dark:text-zinc-400"><span>Built with Next.js + Drizzle • Backend pagination via <code className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">/api/internships?page&limit&q&age&applied&sort</code> • Top Picks via <code className="font-mono bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded">/api/top-picks</code></span><span className="font-mono">{pagination.total} total • {stats.applied} applied • {metaSource} • limit {LIMIT}</span></div>
+        </div>
+      </footer>
     </div>
   );
 }

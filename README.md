@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Internships browser for `internships.json` — Next.js 16 + Tailwind + Drizzle ORM + Postgres (Docker).
+
+## Stack
+- Next.js 16 (App Router, `output: standalone` in `next.config.ts:4`)
+- Drizzle ORM + `pg` (`db/schema.ts:1`, `db/index.ts:1`)
+- Postgres 16 via Docker (`docker-compose.yml:1`, `Dockerfile:1`)
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env        # edit DATABASE_URL if needed
+npm install
+npm run dev                 # http://localhost:3000 — reads internships.json by default
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Database + Docker
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Env** (` .env.example:1`, `.env:1` — gitignored, example committed):
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/jobs
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=jobs
+POSTGRES_PORT=5432
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**Drizzle** (`drizzle.config.ts:1` reads `DATABASE_URL`):
+```bash
+npm run db:generate   # drizzle-kit generate — creates ./drizzle/*.sql (already has 0000_real_tattoo.sql)
+npm run db:push       # drizzle-kit push — push schema directly (dev, no SQL)
+npm run db:migrate    # drizzle-kit migrate — apply generated SQL
+npm run db:studio     # drizzle-kit studio --port 4983 — GUI on http://localhost:4983
+npm run db:seed       # tsx scripts/seed.ts — inserts internships.json (1072 rows, batch 500)
+npm run db:seed:clear # clears table then seeds
+```
 
-## Learn More
+**Docker** (requires Docker daemon):
+```bash
+npm run docker:up     # docker compose up --build — starts db (postgres) + app (Next standalone on :3000)
+npm run docker:down   # docker compose down
+# or manually:
+docker compose up -d db             # only postgres on :5432
+npx drizzle-kit migrate             # apply migrations
+npm run db:seed
+```
 
-To learn more about Next.js, take a look at the following resources:
+API: `GET /api/internships` (`app/api/internships/route.ts:1`) — tries DB first, falls back to `internships.json` if `DATABASE_URL` unset or query fails.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Scripts
+- `npm run dev` / `build` / `start` / `lint`
+- `npm run db:*` / `npm run docker:*` (see above)
