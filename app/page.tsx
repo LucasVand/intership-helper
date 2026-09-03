@@ -479,30 +479,6 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-          <span className="font-medium text-zinc-900 dark:text-zinc-100">Legend:</span>
-          {TAG_DEFS.map((def) => {
-            const v = tagFilters[def.key];
-            const isOnly = v === "only";
-            const isExclude = v === "exclude";
-            return (
-              <button
-                key={def.key}
-                onClick={() => cycleTagFilter(def.key)}
-                title={`Filter: click to cycle All → Hide → Only (now: ${v})`}
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors ${isOnly ? def.activeClasses : isExclude ? "bg-zinc-100 text-zinc-500 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 line-through" : def.activeClasses + " opacity-80 hover:opacity-100"}`}
-              >
-                <span>{def.icon}</span>{def.label}
-                {v !== "all" && <span className="ml-1 text-[10px] font-bold">{v === "only" ? "● Only" : "○ Hide"}</span>}
-              </button>
-            );
-          })}
-          <span className="text-zinc-500 dark:text-zinc-500">— click to filter (shared for Top Picks + list)</span>
-          {hasActiveTagFilters && <button onClick={() => setTagFilters({ is_faang: "all", is_closed: "all", no_sponsorship: "all", requires_citizenship: "all", requires_advanced_degree: "all" })} className="ml-1 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 underline">Clear</button>}
-        </div>
-      </div>
-
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-8">
         {/* Top Picks */}
         <section className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20 p-5 sm:p-6">
