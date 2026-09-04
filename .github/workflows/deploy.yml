@@ -38,6 +38,10 @@ jobs:
       - name: Run database migrations
         run: docker compose --env-file /opt/intership-helper/.env.production run --rm migrate
 
+      - name: Show database logs after migration failure
+        if: failure()
+        run: docker compose --env-file /opt/intership-helper/.env.production logs --no-color db
+
       - name: Build and start application
         run: docker compose --env-file /opt/intership-helper/.env.production up -d --build app
 
