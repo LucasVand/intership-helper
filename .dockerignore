@@ -8,4 +8,3 @@ README.md
 .env.*.local
 npm-debug.log*
 coverage
-drizzle/*.sql
