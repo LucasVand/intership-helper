@@ -46,5 +46,17 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-intership-helper}
     restart: "no"
 
+  sync:
+    build:
+      context: .
+      dockerfile: Dockerfile.sync
+    container_name: intership-helper-sync
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-intership-helper}
+    restart: "no"
+
 volumes:
   postgres_data:

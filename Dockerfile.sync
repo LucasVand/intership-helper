@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1
+
+FROM node:26-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY db ./db
+COPY scripts/sync-internships.ts ./scripts/sync-internships.ts
+
+CMD ["npm", "run", "db:sync"]
