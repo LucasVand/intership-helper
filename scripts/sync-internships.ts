@@ -11,6 +11,17 @@ import { internships, syncRuns } from "../db/schema";
 
 const RAW_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md";
 
+function getDatabaseUrl(): string | undefined {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+
+  const { POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB } = process.env;
+  if (!POSTGRES_USER || !POSTGRES_PASSWORD || !POSTGRES_DB) return undefined;
+
+  const host = process.env.POSTGRES_HOST ?? "db";
+  const port = process.env.POSTGRES_PORT ?? "5432";
+  return `postgresql://${encodeURIComponent(POSTGRES_USER)}:${encodeURIComponent(POSTGRES_PASSWORD)}@${host}:${port}/${encodeURIComponent(POSTGRES_DB)}`;
+}
+
 type ScrapedInternship = {
   company: string;
   role: string;
@@ -196,7 +207,11 @@ Options:
   --help         Show this help
 
 Env:
-  DATABASE_URL   Postgres connection (from .env). Required — sync is DB-only.
+  DATABASE_URL   Postgres connection (preferred)
+  POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+                 Used to build the same connection URL as Docker Compose
+  POSTGRES_HOST  Database hostname (default: db)
+  POSTGRES_PORT  Database port (default: 5432)
 
 Examples:
   npx tsx scripts/sync-internships.ts --dry-run
@@ -215,7 +230,7 @@ Examples:
   } catch (e: any) {
     console.error("Failed to fetch/parse README:", e?.message ?? e);
     // if DB available, record failure
-    const connectionString = process.env.DATABASE_URL;
+    const connectionString = getDatabaseUrl();
     if (connectionString) {
       try {
         const pool = new Pool({ connectionString });
@@ -238,9 +253,9 @@ Examples:
   }
   console.log(`Found ${scraped.length} rows in README`);
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = getDatabaseUrl();
   if (!connectionString) {
-    console.error("DATABASE_URL not set — sync is DB-only. Set it in .env and run npm run db:setup.");
+    console.error("Database configuration missing — set DATABASE_URL or POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB.");
     process.exit(1);
   }
 
@@ -416,7 +431,7 @@ main().catch(async (err) => {
   console.error(err);
   // try to record failure if possible
   try {
-    const connectionString = process.env.DATABASE_URL;
+    const connectionString = getDatabaseUrl();
     if (connectionString) {
       const pool = new Pool({ connectionString });
       const db = drizzle(pool);
