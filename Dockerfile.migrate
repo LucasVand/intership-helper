@@ -9,6 +9,7 @@ RUN npm ci
 
 COPY db ./db
 COPY drizzle ./drizzle
+COPY scripts/migrate.ts ./scripts/migrate.ts
 COPY drizzle.config.ts ./
 
 CMD ["npm", "run", "db:migrate"]
