@@ -6,6 +6,7 @@ export type Internship = {
   application_links: string[];
   age?: string;
   applied: boolean;
+  disliked: boolean;
   no_sponsorship?: boolean;
   requires_citizenship?: boolean;
   is_closed?: boolean;
@@ -60,7 +61,7 @@ function LegendBadges({ job, onTagClick }: { job: Internship; onTagClick?: (key:
   );
 }
 
-export function InternshipCard({ job, onToggle, showLegend = true, onTagClick }: { job: Internship; onToggle: (id: number) => void; showLegend?: boolean; onTagClick?: (key: TagKey) => void }) {
+export function InternshipCard({ job, onToggle, onDislike, showLegend = true, onTagClick }: { job: Internship; onToggle: (id: number) => void; onDislike?: (id: number) => void; showLegend?: boolean; onTagClick?: (key: TagKey) => void }) {
   const primaryLink = job.application_links[0];
   const simplifyLink = job.application_links.find((l) => l.includes("simplify.jobs")) ?? job.application_links[1];
   const hasTwoDistinct = job.application_links.length > 1 && primaryLink !== simplifyLink;
@@ -145,6 +146,19 @@ export function InternshipCard({ job, onToggle, showLegend = true, onTagClick }:
           </a>
         ) : null}
       </div>
+      {onDislike && (
+        <button
+          onClick={() => onDislike(job.id)}
+          className={`mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-full border px-4 py-2 text-xs font-medium transition-colors ${
+            job.disliked
+              ? "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300"
+              : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          }`}
+          title={job.disliked ? "Remove from disliked internships" : "Not interested in this internship"}
+        >
+          {job.disliked ? "♥ Disliked" : "♡ Not interested"}
+        </button>
+      )}
       <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-400 dark:text-zinc-500">
         <span className="truncate">
           {job.application_links.length} link{job.application_links.length !== 1 ? "s" : ""} • id {job.id}
