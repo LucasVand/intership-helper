@@ -9,5 +9,6 @@ RUN npm ci
 
 COPY db ./db
 COPY scripts/sync-internships.ts ./scripts/sync-internships.ts
+COPY scripts/sources ./scripts/sources
 
 CMD ["npm", "run", "db:sync"]
