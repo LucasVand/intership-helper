@@ -16,19 +16,26 @@ export default function PicksPage() {
   const [filters, setFilters] = useState<Record<TagKey, TagFilter>>({ is_faang: "all", is_closed: "all", no_sponsorship: "all", requires_citizenship: "all", requires_advanced_degree: "all" });
   const [excludeApplied, setExcludeApplied] = useState(true);
   const [busy, setBusy] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ page: 1, limit: 24, total: 0, totalPages: 1, hasMore: false });
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (requestedPage = page) => {
     setBusy(true);
-    const params = new URLSearchParams({ limit: "24" });
+    const params = new URLSearchParams({ limit: "24", page: String(requestedPage) });
     if (!excludeApplied) params.set("exclude_applied", "false");
     keys.forEach((key) => filters[key] !== "all" && params.set(key, filters[key]));
     const [keywordRes, picksRes] = await Promise.all([fetch("/api/keywords"), fetch(`/api/top-picks?${params}`)]);
     if (keywordRes.ok) setKeywords(await keywordRes.json());
-    if (picksRes.ok) setPicks((await picksRes.json()).data);
+    if (picksRes.ok) {
+      const json = await picksRes.json();
+      setPicks(json.data);
+      setPagination(json.pagination);
+      setPage(json.pagination.page);
+    }
     setBusy(false);
-  }, [excludeApplied, filters]);
+  }, [excludeApplied, filters, page]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(1); }, [excludeApplied, filters]);
   const toggle = async (id: number) => {
     const current = picks.find((pick) => pick.id === id);
     if (!current) return;
@@ -55,7 +62,7 @@ export default function PicksPage() {
             <label className="inline-flex items-center gap-2 px-2 text-xs text-zinc-600 dark:text-zinc-400"><input type="checkbox" checked={excludeApplied} onChange={(e) => setExcludeApplied(e.target.checked)} /> Hide applied</label>
           </div>
         </header>
-        {busy ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map((i) => <div key={i} className="h-48 animate-pulse rounded-2xl bg-white dark:bg-zinc-900" />)}</div> : picks.length ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{picks.map((pick) => <InternshipCard key={pick.id} job={pick} onToggle={toggle} onDislike={dislike} />)}</div> : <div className="rounded-2xl border border-dashed p-12 text-center text-sm text-zinc-500">No matching Top Picks. Add or broaden your keywords.</div>}
+        {busy ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map((i) => <div key={i} className="h-48 animate-pulse rounded-2xl bg-white dark:bg-zinc-900" />)}</div> : picks.length ? <><div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{picks.map((pick) => <InternshipCard key={pick.id} job={pick} onToggle={toggle} onDislike={dislike} />)}</div><div className="flex items-center justify-center gap-4 text-xs text-zinc-500"><button disabled={page <= 1 || busy} onClick={() => load(page - 1)} className="rounded-full border px-4 py-2 disabled:opacity-40">← Previous</button><span>Page {pagination.page} of {pagination.totalPages} · {pagination.total} matches</span><button disabled={!pagination.hasMore || busy} onClick={() => load(page + 1)} className="rounded-full border px-4 py-2 disabled:opacity-40">Next →</button></div></> : <div className="rounded-2xl border border-dashed p-12 text-center text-sm text-zinc-500">No matching Top Picks. Add or broaden your keywords.</div>}
       </main>
     </div>
   );
