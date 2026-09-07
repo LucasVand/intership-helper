@@ -15,6 +15,7 @@ type SyncRun = {
   status: string;
   error: string | null;
   scrapedUrl: string | null;
+  source: string;
 };
 
 type Pagination = {
@@ -201,7 +202,7 @@ export default function SyncHistoryPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusClasses(run.status)}`}>{run.status}</span>
                         <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{formatDate(run.createdAt)}</span>
-                        <span className="text-xs text-zinc-500 dark:text-zinc-400">• {formatDuration(run.durationMs)} • id {run.id}</span>
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">• {run.source} • {formatDuration(run.durationMs)} • id {run.id}</span>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs">
                         <span className="inline-flex items-center gap-1 rounded-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 px-2.5 py-1">

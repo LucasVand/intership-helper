@@ -4,6 +4,7 @@ export type Internship = {
   role: string;
   location: string;
   application_link: string;
+  source?: string;
   age?: string;
   posted_at?: string;
   applied: boolean;
@@ -158,7 +159,7 @@ export function InternshipCard({ job, onToggle, onDislike, showLegend = true, on
       )}
       <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-400 dark:text-zinc-500">
         <span className="truncate">
-          Application link • id {job.id}
+          {job.source === "canadian-tech" ? "Canadian Tech" : job.source === "multiple" ? "Multiple sources" : "SimplifyJobs"} • id {job.id}
         </span>
         <span className="font-mono flex items-center gap-1.5">
           {job.applied && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />} {job.age ?? "—"}

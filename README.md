@@ -31,7 +31,7 @@ npm run db:generate   # drizzle-kit generate — creates ./drizzle/*.sql (alread
 npm run db:push       # drizzle-kit push — push schema directly (dev, no SQL)
 npm run db:migrate    # drizzle-kit migrate — apply generated SQL
 npm run db:studio     # drizzle-kit studio --port 4983 — GUI on http://localhost:4983
-npm run db:sync       # tsx scripts/sync-internships.ts — fetches SimplifyJobs README and upserts (insert + flag backfill)
+npm run db:sync       # tsx scripts/sync-internships.ts — fetches SimplifyJobs and Canadian Tech README tables and upserts normalized listings
 npm run db:sync:dry   # dry-run without DB writes
 ```
 
