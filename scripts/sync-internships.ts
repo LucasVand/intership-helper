@@ -151,25 +151,13 @@ function parseReadme(mdOrHtml: string): ScrapedInternship[] {
   return result;
 }
 
-function normalize(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
+function selectApplicationLink(links: string[]): string | undefined {
+  const link = links[0]?.trim();
+  return link || undefined;
 }
 
-function cleanForKey(s: string): string {
-  return normalize(
-    s
-      .replace(/🛂/g, "")
-      .replace(/🇺🇸/g, "")
-      .replace(/🔒/g, "")
-      .replace(/🔥/g, "")
-      .replace(/🎓/g, "")
-      .trim()
-  );
-}
-
-function makeKey(r: { company: string; role: string; location: string; application_links?: string[]; applicationLinks?: string[] }): string {
-  const links = (r.application_links ?? r.applicationLinks ?? []).map((s) => s.trim()).sort().join("|");
-  return `${cleanForKey(r.company)}|${cleanForKey(r.role)}|${normalize(r.location)}|${links}`;
+function makeKey(r: { application_links?: string[]; applicationLink?: string }): string | undefined {
+  return r.applicationLink?.trim() || selectApplicationLink(r.application_links ?? []);
 }
 
 async function recordSyncRun(
@@ -305,16 +293,23 @@ Examples:
 
   const existingMap = new Map<string, typeof existing[number]>();
   for (const r of existing) {
-    existingMap.set(makeKey({ company: r.company, role: r.role, location: r.location, applicationLinks: r.applicationLinks }), r);
+    existingMap.set(r.applicationLink, r);
   }
   if (verbose) console.log(`  built ${existingMap.size} existing keys`);
 
-  const newEntries = scraped.filter((r) => !existingMap.has(makeKey(r)));
+  const seenScrapedLinks = new Set<string>();
+  const newEntries = scraped.filter((r) => {
+    const link = makeKey(r);
+    if (!link || existingMap.has(link) || seenScrapedLinks.has(link)) return false;
+    seenScrapedLinks.add(link);
+    return true;
+  });
 
   // Also detect existing rows where legend flags or cleaned text have changed (backfill)
   const toUpdate: Array<{ id: number; flags: ScrapedInternship; cleanCompany: string; cleanRole: string }> = [];
   for (const s of scraped) {
     const key = makeKey(s);
+    if (!key) continue;
     const ex = existingMap.get(key);
     if (!ex) continue;
     const sFlags = {
@@ -394,7 +389,7 @@ Examples:
       company: row.company,
       role: row.role,
       location: row.location,
-      applicationLinks: row.application_links,
+      applicationLink: selectApplicationLink(row.application_links)!,
       postedAt: row.posted_at ?? null,
       applied: false,
       noSponsorship: Boolean(row.no_sponsorship),
