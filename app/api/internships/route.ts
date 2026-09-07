@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq, ilike, and, or, asc, desc, sql, count } from "drizzle-orm";
+import { eq, ilike, and, or, asc, desc, sql, count, gte, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { internships } from "@/db/schema";
 
@@ -7,11 +7,23 @@ export const dynamic = "force-dynamic";
 
 type SortKey = "newest" | "oldest" | "company" | "role";
 
-function parseAgeDays(age?: string | null): number {
-  if (!age) return 999;
-  const m = age.match(/(\d+)/);
-  if (!m) return 999;
-  return parseInt(m[1], 10);
+function formatAge(postedAt?: Date | null): string | undefined {
+  if (!postedAt) return undefined;
+  const minutes = Math.max(0, Math.floor((Date.now() - postedAt.getTime()) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h`;
+  if (minutes < 30 * 24 * 60) return `${Math.floor(minutes / (24 * 60))}d`;
+  return `${Math.floor(minutes / (30 * 24 * 60))}mo`;
+}
+
+function ageFilterCondition(age: string) {
+  const match = age.match(/^(\d+)(d|mo)$/);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  const days = match[2] === "mo" ? value * 30 : value;
+  const newerThan = new Date(Date.now() - (days + (match[2] === "mo" ? 30 : 1)) * 24 * 60 * 60 * 1000);
+  const olderThan = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return and(gte(internships.postedAt, newerThan), lt(internships.postedAt, olderThan));
 }
 
 function toSortOrder(sort: string): SortKey {
@@ -59,7 +71,8 @@ export async function GET(req: Request) {
     const conditions: any[] = [];
 
     if (ageFilter !== "all") {
-      conditions.push(eq(internships.age, ageFilter));
+      const ageCondition = ageFilterCondition(ageFilter);
+      if (ageCondition) conditions.push(ageCondition);
     }
     if (appliedFilter === "applied") {
       conditions.push(eq(internships.applied, true));
@@ -87,7 +100,10 @@ export async function GET(req: Request) {
     const where = conditions.length ? and(...conditions) : undefined;
 
     const baseConditions: any[] = [];
-    if (ageFilter !== "all") baseConditions.push(eq(internships.age, ageFilter));
+    if (ageFilter !== "all") {
+      const ageCondition = ageFilterCondition(ageFilter);
+      if (ageCondition) baseConditions.push(ageCondition);
+    }
     if (dislikedFilter === "disliked") baseConditions.push(eq(internships.disliked, true));
     else if (!includeDisliked && dislikedFilter !== "all") baseConditions.push(eq(internships.disliked, false));
     if (q) {
@@ -119,18 +135,14 @@ export async function GET(req: Request) {
     const appliedCount = Number(appliedRes[0]?.value ?? 0);
     const notAppliedCount = Number(notAppliedRes[0]?.value ?? 0);
 
-    const ageRows = await db.selectDistinct({ age: internships.age }).from(internships);
-    const ages = ageRows
-      .map((r) => r.age)
-      .filter((a): a is string => Boolean(a))
-      .sort((a, b) => parseAgeDays(a) - parseAgeDays(b));
+    const ages = ["0d", "1d", "2d", "3d", "7d", "14d", "30d"];
 
     let orderBy: any;
     if (sort === "company") orderBy = asc(internships.company);
     else if (sort === "role") orderBy = asc(internships.role);
     else if (sort === "oldest")
-      orderBy = sql`CAST(NULLIF(regexp_replace(${internships.age}, '[^0-9]', '', 'g'), '') AS INTEGER) DESC NULLS LAST, ${internships.id} ASC`;
-    else orderBy = sql`CAST(NULLIF(regexp_replace(${internships.age}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST, ${internships.id} ASC`;
+      orderBy = sql`${internships.postedAt} ASC NULLS LAST, ${internships.id} ASC`;
+    else orderBy = sql`${internships.postedAt} DESC NULLS LAST, ${internships.id} ASC`;
 
     const rows = await db.select().from(internships).where(where).orderBy(orderBy).limit(limit).offset(offset);
 
@@ -140,7 +152,8 @@ export async function GET(req: Request) {
       role: r.role,
       location: r.location,
       application_links: r.applicationLinks,
-      age: r.age ?? undefined,
+      age: formatAge(r.postedAt),
+      posted_at: r.postedAt?.toISOString(),
       applied: r.applied,
       disliked: r.disliked,
       no_sponsorship: r.noSponsorship,

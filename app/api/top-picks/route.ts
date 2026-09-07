@@ -14,6 +14,15 @@ function parseTagFilter(v: string | null): TagFilter {
 
 export const dynamic = "force-dynamic";
 
+function formatAge(postedAt?: Date | null): string | undefined {
+  if (!postedAt) return undefined;
+  const minutes = Math.max(0, Math.floor((Date.now() - postedAt.getTime()) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h`;
+  if (minutes < 30 * 24 * 60) return `${Math.floor(minutes / (24 * 60))}d`;
+  return `${Math.floor(minutes / (30 * 24 * 60))}mo`;
+}
+
 export async function GET(req: Request) {
   if (!db) {
     return NextResponse.json(
@@ -73,7 +82,7 @@ export async function GET(req: Request) {
     const totalRes = await db.select({ value: count() }).from(internships).where(where);
     const totalMatching = Number(totalRes[0]?.value ?? 0);
 
-    const orderBy = sql`CAST(NULLIF(regexp_replace(${internships.age}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST, ${internships.id} ASC`;
+    const orderBy = sql`${internships.postedAt} DESC NULLS LAST, ${internships.id} ASC`;
 
     const rows = await db.select().from(internships).where(where).orderBy(orderBy).limit(limit);
 
@@ -83,7 +92,8 @@ export async function GET(req: Request) {
       role: r.role,
       location: r.location,
       application_links: r.applicationLinks,
-      age: r.age ?? undefined,
+      age: formatAge(r.postedAt),
+      posted_at: r.postedAt?.toISOString(),
       applied: r.applied,
       disliked: r.disliked,
       no_sponsorship: r.noSponsorship,
