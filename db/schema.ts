@@ -7,7 +7,7 @@ export const internships = pgTable(
     company: text("company").notNull(),
     role: text("role").notNull(),
     location: text("location").notNull(),
-    applicationLinks: text("application_links").array().notNull(),
+    applicationLink: text("application_link").notNull().unique(),
     postedAt: timestamp("posted_at"),
     applied: boolean("applied").notNull().default(false),
     disliked: boolean("disliked").notNull().default(false),

@@ -3,7 +3,7 @@ export type Internship = {
   company: string;
   role: string;
   location: string;
-  application_links: string[];
+  application_link: string;
   age?: string;
   posted_at?: string;
   applied: boolean;
@@ -72,9 +72,7 @@ function LegendBadges({ job, onTagClick }: { job: Internship; onTagClick?: (key:
 }
 
 export function InternshipCard({ job, onToggle, onDislike, showLegend = true, onTagClick }: { job: Internship; onToggle: (id: number) => void; onDislike?: (id: number) => void; showLegend?: boolean; onTagClick?: (key: TagKey) => void }) {
-  const primaryLink = job.application_links[0];
-  const simplifyLink = job.application_links.find((l) => l.includes("simplify.jobs")) ?? job.application_links[1];
-  const hasTwoDistinct = job.application_links.length > 1 && primaryLink !== simplifyLink;
+  const applicationLink = job.application_link;
   return (
     <article
       className={`group flex flex-col rounded-2xl border p-5 shadow-sm hover:shadow-md transition-all ${
@@ -129,9 +127,9 @@ export function InternshipCard({ job, onToggle, onDislike, showLegend = true, on
         </button>
       </div>
       <div className="mt-3 flex gap-2">
-        {primaryLink ? (
+        {applicationLink ? (
           <a
-            href={primaryLink}
+            href={applicationLink}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-zinc-900 dark:bg-white px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors"
@@ -144,17 +142,6 @@ export function InternshipCard({ job, onToggle, onDislike, showLegend = true, on
         ) : (
           <span className="inline-flex flex-1 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-400">No link</span>
         )}
-        {hasTwoDistinct && simplifyLink ? (
-          <a
-            href={simplifyLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
-            title="View on Simplify.jobs"
-          >
-            Simplify
-          </a>
-        ) : null}
       </div>
       {onDislike && (
         <button
@@ -171,7 +158,7 @@ export function InternshipCard({ job, onToggle, onDislike, showLegend = true, on
       )}
       <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-400 dark:text-zinc-500">
         <span className="truncate">
-          {job.application_links.length} link{job.application_links.length !== 1 ? "s" : ""} • id {job.id}
+          Application link • id {job.id}
         </span>
         <span className="font-mono flex items-center gap-1.5">
           {job.applied && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />} {job.age ?? "—"}

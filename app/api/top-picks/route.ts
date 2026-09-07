@@ -91,7 +91,7 @@ export async function GET(req: Request) {
       company: r.company,
       role: r.role,
       location: r.location,
-      application_links: r.applicationLinks,
+      application_link: r.applicationLink,
       age: formatAge(r.postedAt),
       posted_at: r.postedAt?.toISOString(),
       applied: r.applied,
