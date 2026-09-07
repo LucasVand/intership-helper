@@ -5,6 +5,7 @@ export type Internship = {
   location: string;
   application_links: string[];
   age?: string;
+  posted_at?: string;
   applied: boolean;
   disliked: boolean;
   no_sponsorship?: boolean;
@@ -89,7 +90,7 @@ export function InternshipCard({ job, onToggle, onDislike, showLegend = true, on
           <h2 className="truncate text-[13px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400 uppercase">{job.company}</h2>
           <h3 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug text-zinc-900 dark:text-zinc-100 group-hover:text-black dark:group-hover:text-white">{job.role}</h3>
         </div>
-        <span className={`shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${ageBadgeClasses(job.age)}`} title={`Posted ${job.age ?? "unknown"} ago`}>
+        <span className={`shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${ageBadgeClasses(job.age)}`} title={job.posted_at ? `Posted ${new Date(job.posted_at).toLocaleString()}` : `Posted ${job.age ?? "unknown"} ago`}>
           {formatAgeLabel(job.age)}
         </span>
       </div>

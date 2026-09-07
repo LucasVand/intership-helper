@@ -27,13 +27,28 @@ type ScrapedInternship = {
   role: string;
   location: string;
   application_links: string[];
-  age?: string;
+  posted_at?: Date;
   no_sponsorship?: boolean;
   requires_citizenship?: boolean;
   is_closed?: boolean;
   is_faang?: boolean;
   requires_advanced_degree?: boolean;
 };
+
+function parsePostedAt(age?: string): Date | undefined {
+  if (!age) return undefined;
+  const match = age.trim().toLowerCase().match(/^(\d+)\s*(m|min|mins|h|hr|hrs|d|day|days|w|wk|wks|mo|mos)$/);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  const unit = match[2];
+  const minutes =
+    unit === "m" || unit === "min" || unit === "mins" ? value :
+    unit === "h" || unit === "hr" || unit === "hrs" ? value * 60 :
+    unit === "w" || unit === "wk" || unit === "wks" ? value * 7 * 24 * 60 :
+    unit === "mo" || unit === "mos" ? value * 30 * 24 * 60 :
+    value * 24 * 60;
+  return new Date(Date.now() - minutes * 60 * 1000);
+}
 
 async function fetchReadme(): Promise<string> {
   const res = await fetch(RAW_URL, { headers: { "User-Agent": "node.js" } });
@@ -124,7 +139,7 @@ function parseReadme(mdOrHtml: string): ScrapedInternship[] {
       role,
       location,
       application_links: applicationLinks,
-      age,
+      posted_at: parsePostedAt(age),
       no_sponsorship: flagsCombined.no_sponsorship || undefined,
       requires_citizenship: flagsCombined.requires_citizenship || undefined,
       is_closed: flagsCombined.is_closed || undefined,
@@ -316,7 +331,10 @@ Examples:
       ex.isFaang !== sFlags.isFaang ||
       ex.requiresAdvancedDegree !== sFlags.requiresAdvancedDegree;
     const needsTextUpdate = ex.company !== s.company || ex.role !== s.role;
-    if (needsFlagUpdate || needsTextUpdate) {
+    const needsPostedAtUpdate =
+      Boolean(s.posted_at) &&
+      (!ex.postedAt || Math.abs(ex.postedAt.getTime() - s.posted_at!.getTime()) > 12 * 60 * 60 * 1000);
+    if (needsFlagUpdate || needsTextUpdate || needsPostedAtUpdate) {
       toUpdate.push({ id: ex.id, flags: s, cleanCompany: s.company, cleanRole: s.role });
     }
   }
@@ -377,7 +395,7 @@ Examples:
       role: row.role,
       location: row.location,
       applicationLinks: row.application_links,
-      age: row.age ?? null,
+      postedAt: row.posted_at ?? null,
       applied: false,
       noSponsorship: Boolean(row.no_sponsorship),
       requiresCitizenship: Boolean(row.requires_citizenship),
@@ -403,6 +421,7 @@ Examples:
         isClosed: Boolean(u.flags.is_closed),
         isFaang: Boolean(u.flags.is_faang),
         requiresAdvancedDegree: Boolean(u.flags.requires_advanced_degree),
+        postedAt: u.flags.posted_at ?? null,
       })
       .where(eq(internships.id, u.id));
     updated++;

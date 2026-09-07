@@ -8,7 +8,7 @@ export const internships = pgTable(
     role: text("role").notNull(),
     location: text("location").notNull(),
     applicationLinks: text("application_links").array().notNull(),
-    age: text("age"),
+    postedAt: timestamp("posted_at"),
     applied: boolean("applied").notNull().default(false),
     disliked: boolean("disliked").notNull().default(false),
     // Legend flags — parsed from README emojis
@@ -21,7 +21,7 @@ export const internships = pgTable(
   },
   (table) => [
     index("company_idx").on(table.company),
-    index("age_idx").on(table.age),
+    index("posted_at_idx").on(table.postedAt),
     index("applied_idx").on(table.applied),
     index("disliked_idx").on(table.disliked),
     index("is_faang_idx").on(table.isFaang),
