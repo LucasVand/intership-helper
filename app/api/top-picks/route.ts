@@ -25,6 +25,7 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const limitRaw = parseInt(searchParams.get("limit") || "6", 10) || 6;
   const limit = Math.min(24, Math.max(1, limitRaw));
+  const excludeApplied = searchParams.get("exclude_applied") !== "false";
   const tagFilters = {
     is_faang: parseTagFilter(searchParams.get("is_faang")),
     is_closed: parseTagFilter(searchParams.get("is_closed")),
@@ -46,7 +47,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data: [],
       keywords,
-      meta: { source: "db" as const, limit, totalMatching: 0, filters: tagFilters },
+      meta: { source: "db" as const, limit, totalMatching: 0, excludeApplied, filters: tagFilters },
     });
   }
 
@@ -58,6 +59,7 @@ export async function GET(req: Request) {
 
     const keywordWhere = or(...conditions);
     const tagConditions: any[] = [];
+    if (excludeApplied) tagConditions.push(eq(internships.applied, false));
     if (tagFilters.is_faang !== "all") tagConditions.push(eq(internships.isFaang, tagFilters.is_faang === "only"));
     if (tagFilters.is_closed !== "all") tagConditions.push(eq(internships.isClosed, tagFilters.is_closed === "only"));
     if (tagFilters.no_sponsorship !== "all") tagConditions.push(eq(internships.noSponsorship, tagFilters.no_sponsorship === "only"));
@@ -91,7 +93,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data,
       keywords,
-      meta: { source: "db" as const, limit, totalMatching, filters: tagFilters },
+      meta: { source: "db" as const, limit, totalMatching, excludeApplied, filters: tagFilters },
     });
   } catch (e) {
     console.error("top-picks DB query failed:", e);
