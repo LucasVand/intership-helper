@@ -8,7 +8,13 @@ import { SiteNav } from "../components/SiteNav";
 type Keyword = { id: number; keyword: string };
 type TagFilter = "all" | "only" | "exclude";
 const keys: TagKey[] = ["is_faang", "is_closed", "no_sponsorship", "requires_citizenship", "requires_advanced_degree"];
-const labels: Record<TagKey, string> = { is_faang: "FAANG+", is_closed: "Closed", no_sponsorship: "No sponsorship", requires_citizenship: "U.S. Citizenship", requires_advanced_degree: "Advanced degree" };
+const tagDefinitions: Array<{ key: TagKey; label: string; icon: string; activeClasses: string }> = [
+  { key: "is_faang", label: "FAANG+", icon: "🔥", activeClasses: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800" },
+  { key: "requires_advanced_degree", label: "Advanced degree", icon: "🎓", activeClasses: "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800" },
+  { key: "no_sponsorship", label: "No sponsorship", icon: "🛂", activeClasses: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800" },
+  { key: "requires_citizenship", label: "U.S. Citizenship", icon: "🇺🇸", activeClasses: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800" },
+  { key: "is_closed", label: "Closed", icon: "🔒", activeClasses: "bg-zinc-100 text-zinc-700 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700" },
+];
 
 export default function PicksPage() {
   const [keywords, setKeywords] = useState<Keyword[]>([]);
@@ -23,6 +29,35 @@ export default function PicksPage() {
   const [editingValue, setEditingValue] = useState("");
   const [keywordError, setKeywordError] = useState<string | null>(null);
   const [keywordBusy, setKeywordBusy] = useState(false);
+  const [showKeywordsManager, setShowKeywordsManager] = useState(false);
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("intership-helper:picks-tag-filters");
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<Record<TagKey, TagFilter>>;
+        setFilters((current) => ({ ...current, ...keys.reduce((result, key) => {
+          const value = parsed[key];
+          result[key] = value === "all" || value === "only" || value === "exclude" ? value : current[key];
+          return result;
+        }, {} as Record<TagKey, TagFilter>) }));
+      }
+    } catch (error) {
+      console.warn("Could not restore Top Picks tag filters:", error);
+    } finally {
+      setFiltersHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydrated) return;
+    try {
+      localStorage.setItem("intership-helper:picks-tag-filters", JSON.stringify(filters));
+    } catch (error) {
+      console.warn("Could not save Top Picks tag filters:", error);
+    }
+  }, [filters, filtersHydrated]);
 
   const load = useCallback(async (requestedPage = page) => {
     setBusy(true);
@@ -40,7 +75,7 @@ export default function PicksPage() {
     setBusy(false);
   }, [excludeApplied, filters, page]);
 
-  useEffect(() => { load(1); }, [excludeApplied, filters]);
+  useEffect(() => { if (filtersHydrated) load(1); }, [excludeApplied, filters, filtersHydrated]);
   const addKeyword = async () => {
     const value = newKeyword.trim();
     if (!value) return;
@@ -114,36 +149,65 @@ export default function PicksPage() {
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">★ Top Picks</h1>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">The newest internships matching your saved keywords.</p>
           <div className="mt-4 flex flex-wrap gap-2">{keywords.map((keyword) => <span key={keyword.id} className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs dark:border-amber-800 dark:bg-zinc-900">{keyword.keyword}</span>)}{!keywords.length && <Link href="/" className="text-xs underline">Add keywords from the listings page</Link>}</div>
-          <div className="mt-5 rounded-xl border border-amber-200 bg-white/70 p-4 dark:border-amber-800 dark:bg-zinc-900/50">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300">Manage keywords</h2>
-            <div className="mt-2 flex gap-2">
-              <input value={newKeyword} onChange={(event) => setNewKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addKeyword(); }} placeholder="Add keyword" className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900" />
-              <button onClick={addKeyword} disabled={keywordBusy || !newKeyword.trim()} className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900">Add</button>
-            </div>
-            {keywordError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{keywordError}</p>}
-            <div className="mt-3 space-y-2">
-              {keywords.map((keyword) => editingId === keyword.id ? (
-                <div key={keyword.id} className="flex gap-2">
-                  <input value={editingValue} onChange={(event) => setEditingValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") saveKeyword(keyword.id); if (event.key === "Escape") setEditingId(null); }} className="min-w-0 flex-1 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900" autoFocus />
-                  <button onClick={() => saveKeyword(keyword.id)} disabled={keywordBusy} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Save</button>
-                  <button onClick={() => setEditingId(null)} className="rounded-lg border px-3 py-1.5 text-xs">Cancel</button>
-                </div>
-              ) : (
-                <div key={keyword.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-700">
-                  <span className="min-w-0 flex-1 truncate text-sm">{keyword.keyword}</span>
-                  <button onClick={() => { setEditingId(keyword.id); setEditingValue(keyword.keyword); setKeywordError(null); }} className="rounded-lg border px-2.5 py-1 text-xs">Edit</button>
-                  <button onClick={() => deleteKeyword(keyword.id)} disabled={keywordBusy} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-red-600 disabled:opacity-50">Delete</button>
-                </div>
-              ))}
-            </div>
-          </div>
+          <button onClick={() => setShowKeywordsManager(true)} className="mt-5 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white dark:bg-white dark:text-zinc-900">Manage keywords — {keywords.length}</button>
           <div className="mt-4 flex flex-wrap gap-2">
-            {keys.map((key) => <button key={key} onClick={() => setFilters((prev) => ({ ...prev, [key]: prev[key] === "all" ? "exclude" : prev[key] === "exclude" ? "only" : "all" }))} className={`rounded-full border px-3 py-1.5 text-xs ${filters[key] === "only" ? "bg-zinc-900 text-white" : filters[key] === "exclude" ? "line-through text-zinc-500" : "bg-white dark:bg-zinc-900"}`}>{labels[key]} · {filters[key]}</button>)}
+            <span className="text-xs font-medium text-amber-900 dark:text-amber-100">Filter Top Picks:</span>
+            {tagDefinitions.map((tag) => {
+              const value = filters[tag.key];
+              const isOnly = value === "only";
+              const isExclude = value === "exclude";
+              return (
+                <button
+                  key={tag.key}
+                  onClick={() => setFilters((prev) => ({ ...prev, [tag.key]: prev[tag.key] === "all" ? "exclude" : prev[tag.key] === "exclude" ? "only" : "all" }))}
+                  title={`Click to cycle: All → Hide → Only (current: ${value})`}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    isOnly
+                      ? tag.activeClasses
+                      : isExclude
+                        ? "bg-zinc-100 text-zinc-500 border-zinc-300 line-through dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
+                        : "bg-white text-zinc-600 border-amber-200 hover:bg-amber-50 dark:bg-zinc-900 dark:text-zinc-400 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <span>{tag.icon}</span>
+                  <span>{tag.label}</span>
+                  <span className={`ml-0.5 rounded-full px-1 py-0.5 text-[10px] leading-none ${isOnly ? "bg-black/10 dark:bg-white/10" : isExclude ? "bg-zinc-200 dark:bg-zinc-700" : "bg-amber-100 dark:bg-zinc-800"}`}>
+                    {isOnly ? "Only" : isExclude ? "Hide" : "All"}
+                  </span>
+                </button>
+              );
+            })}
             <label className="inline-flex items-center gap-2 px-2 text-xs text-zinc-600 dark:text-zinc-400"><input type="checkbox" checked={excludeApplied} onChange={(e) => setExcludeApplied(e.target.checked)} /> Hide applied</label>
           </div>
         </header>
         {busy ? <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map((i) => <div key={i} className="h-48 animate-pulse rounded-2xl bg-white dark:bg-zinc-900" />)}</div> : picks.length ? <><div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{picks.map((pick) => <InternshipCard key={pick.id} job={pick} onToggle={toggle} onDislike={dislike} />)}</div><div className="flex items-center justify-center gap-4 text-xs text-zinc-500"><button disabled={page <= 1 || busy} onClick={() => load(page - 1)} className="rounded-full border px-4 py-2 disabled:opacity-40">← Previous</button><span>Page {pagination.page} of {pagination.totalPages} · {pagination.total} matches</span><button disabled={!pagination.hasMore || busy} onClick={() => load(page + 1)} className="rounded-full border px-4 py-2 disabled:opacity-40">Next →</button></div></> : <div className="rounded-2xl border border-dashed p-12 text-center text-sm text-zinc-500">No matching Top Picks. Add or broaden your keywords.</div>}
       </main>
+      {showKeywordsManager && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowKeywordsManager(false)} aria-label="Close" />
+          <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
+              <div><h2 className="text-sm font-semibold">Top Picks Keywords</h2><p className="text-xs text-zinc-500">Saved globally in Postgres and matched against company, role, and location.</p></div>
+              <button onClick={() => setShowKeywordsManager(false)} className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Close">×</button>
+            </div>
+            <div className="space-y-4 overflow-auto p-5">
+              <div className="flex gap-2">
+                <input value={newKeyword} onChange={(event) => setNewKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addKeyword(); }} placeholder="Add keyword e.g. Backend" className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900" />
+                <button onClick={addKeyword} disabled={keywordBusy || !newKeyword.trim()} className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900">Add</button>
+              </div>
+              {keywordError && <p className="text-xs text-red-600 dark:text-red-400">{keywordError}</p>}
+              <div className="space-y-2">
+                {keywords.length === 0 ? <p className="rounded-xl border border-dashed p-5 text-center text-sm text-zinc-500">No keywords yet.</p> : keywords.map((keyword) => (
+                  <div key={keyword.id} className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800">
+                    {editingId === keyword.id ? <><input value={editingValue} onChange={(event) => setEditingValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") saveKeyword(keyword.id); if (event.key === "Escape") setEditingId(null); }} className="flex-1 rounded-lg border px-2 py-1.5 text-sm dark:bg-zinc-900" autoFocus /><button onClick={() => saveKeyword(keyword.id)} disabled={keywordBusy} className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs text-white">Save</button><button onClick={() => setEditingId(null)} className="rounded-full border px-3 py-1.5 text-xs">Cancel</button></> : <><span className="flex-1 truncate text-sm font-medium">{keyword.keyword}</span><button onClick={() => { setEditingId(keyword.id); setEditingValue(keyword.keyword); setKeywordError(null); }} className="rounded-full border px-2.5 py-1 text-xs">Edit</button><button onClick={() => deleteKeyword(keyword.id)} disabled={keywordBusy} className="rounded-full border border-red-200 px-2.5 py-1 text-xs text-red-600">Remove</button></>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end border-t border-zinc-200 px-5 py-3 dark:border-zinc-800"><button onClick={() => setShowKeywordsManager(false)} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-white dark:text-zinc-900">Done</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

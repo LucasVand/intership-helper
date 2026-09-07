@@ -116,15 +116,6 @@ export default function AppliedPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs">
-                <Link href="/" className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 dark:bg-white px-3.5 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100">
-                  ← Back to listings
-                </Link>
-                <Link href="/sync" className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                  ⧗ Sync
-                </Link>
-                <Link href="/disliked" className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-rose-700">
-                  ♡ Disliked
-                </Link>
                 <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-zinc-600 dark:text-zinc-400">
                   <span className={`h-2 w-2 rounded-full ${isLoading ? "bg-amber-500 animate-pulse" : "bg-emerald-500"}`} />
                   {pagination.total.toLocaleString()} applied

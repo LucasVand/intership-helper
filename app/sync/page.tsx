@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { SiteNav } from "../components/SiteNav";
 
 type SyncRun = {
@@ -117,12 +116,6 @@ export default function SyncHistoryPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs">
-                <Link href="/" className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 dark:bg-white px-3.5 py-1.5 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100">
-                  ← Back to listings
-                </Link>
-                <Link href="/applied" className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
-                  ✓ Applied
-                </Link>
                 <button
                   onClick={() => fetchRuns(1, false)}
                   className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"

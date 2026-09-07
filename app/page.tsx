@@ -441,30 +441,6 @@ export default function Home() {
                 >
                   ★ Top Picks • {keywords.length} keywords
                 </button>
-                <Link
-                  href="/applied"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 dark:bg-emerald-600 font-medium text-white hover:bg-emerald-700 dark:hover:bg-emerald-700"
-                  style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}
-                  title="View all applied internships"
-                >
-                  ✓ Applied • {stats.applied}
-                </Link>
-                <Link
-                  href="/disliked"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 font-medium text-white hover:bg-rose-700"
-                  style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}
-                  title="View disliked internships"
-                >
-                  ♡ Disliked
-                </Link>
-                <Link
-                  href="/sync"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                  style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}
-                  title="View sync history"
-                >
-                  ⧗ Sync
-                </Link>
                 <span
                   className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400"
                   style={{ padding: `${4 + (1 - p) * 4}px ${8 + (1 - p) * 4}px`, fontSize: `${11 + (1 - p) * 1}px` }}

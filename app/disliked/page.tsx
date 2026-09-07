@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { InternshipCard, type Internship } from "../components/InternshipCard";
 import { SiteNav } from "../components/SiteNav";
 
@@ -96,10 +95,6 @@ export default function DislikedPage() {
               <p className="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">
                 {isLoading ? "Loading…" : `${pagination.total.toLocaleString()} marked as not interested`}
               </p>
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              <Link href="/" className="rounded-full bg-zinc-900 px-3.5 py-1.5 font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900">← Back to listings</Link>
-              <Link href="/applied" className="rounded-full bg-emerald-600 px-3.5 py-1.5 font-medium text-white hover:bg-emerald-700">✓ Applied</Link>
             </div>
           </div>
           {error && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/20 dark:text-red-200">{error}</div>}
