@@ -373,6 +373,31 @@ export default function Home() {
     }
   };
 
+  const toggleDisliked = async (id: number) => {
+    const current = internships.find((i) => i.id === id) ?? topPicks.find((i) => i.id === id);
+    if (!current) return;
+    const nextDisliked = !current.disliked;
+    if (nextDisliked) {
+      setInternships((prev) => prev.filter((i) => i.id !== id));
+      setTopPicks((prev) => prev.filter((i) => i.id !== id));
+    } else {
+      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, disliked: false } : i)));
+      setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, disliked: false } : i)));
+    }
+    try {
+      const res = await fetch("/api/internships", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, disliked: nextDisliked }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      console.error("PATCH disliked failed:", e);
+      setInternships((prev) => (prev.some((i) => i.id === id) ? prev : [...prev, { ...current, disliked: current.disliked }]));
+      setTopPicks((prev) => (prev.some((i) => i.id === id) ? prev : [...prev, { ...current, disliked: current.disliked }]));
+    }
+  };
+
   // scroll-linked header metrics (0 = expanded, 1 = compact) — linear scrub from 0..80px
   const p = scrollProgress;
   const headerShadowOpacity = p * 0.08;
@@ -421,6 +446,14 @@ export default function Home() {
                   title="View all applied internships"
                 >
                   ✓ Applied • {stats.applied}
+                </Link>
+                <Link
+                  href="/disliked"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 font-medium text-white hover:bg-rose-700"
+                  style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}
+                  title="View disliked internships"
+                >
+                  ♡ Disliked
                 </Link>
                 <Link
                   href="/sync"
@@ -573,7 +606,7 @@ export default function Home() {
               <>
                 <div className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">Showing {topPicks.length} of {topPicksMeta?.totalMatching ?? topPicks.length} most recent • limit {TOP_PICKS_LIMIT}</div>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {topPicks.map((job) => <InternshipCard key={`top-${job.id}`} job={job} onToggle={toggleApplied} onTagClick={handleCardTagClick} />)}
+                  {topPicks.map((job) => <InternshipCard key={`top-${job.id}`} job={job} onToggle={toggleApplied} onDislike={toggleDisliked} onTagClick={handleCardTagClick} />)}
                 </div>
               </>
             )}
@@ -595,7 +628,7 @@ export default function Home() {
           <>
             <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400"><span>Showing <span className="font-medium text-zinc-900 dark:text-zinc-100">{internships.length.toLocaleString()}</span> of <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> • page {pagination.page}/{pagination.totalPages} • {metaSource} • limit {LIMIT}</span><span className="hidden sm:inline">Backend paginated • {facets.ages.length} ages</span></div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
-              {internships.map((job) => <InternshipCard key={job.id} job={job} onToggle={toggleApplied} showLegend onTagClick={handleCardTagClick} />)}
+              {internships.map((job) => <InternshipCard key={job.id} job={job} onToggle={toggleApplied} onDislike={toggleDisliked} showLegend onTagClick={handleCardTagClick} />)}
             </div>
             {pagination.hasMore && <div className="flex justify-center"><button onClick={handleLoadMore} disabled={isLoadingMore} className="rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-2.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 shadow-sm disabled:opacity-50">{isLoadingMore ? "Loading…" : `Load more — ${pagination.total - internships.length} remaining`}</button></div>}
             <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 dark:text-zinc-400"><span>Page {pagination.page} of {pagination.totalPages}</span><span>•</span><span>{pagination.hasMore ? "More pages via backend" : "End of results"}</span><span>•</span><span>limit={LIMIT} offset={(pagination.page - 1) * LIMIT}</span></div>

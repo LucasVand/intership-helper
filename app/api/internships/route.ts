@@ -40,6 +40,8 @@ export async function GET(req: Request) {
   const q = (searchParams.get("q") || "").trim();
   const ageFilter = searchParams.get("age") || "all";
   const appliedFilter = searchParams.get("applied") || "all"; // all | applied | not_applied
+  const dislikedFilter = searchParams.get("disliked") || "not_disliked";
+  const includeDisliked = searchParams.get("include_disliked") === "true";
   const sort = toSortOrder(searchParams.get("sort") || "newest");
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
   const limitRaw = parseInt(searchParams.get("limit") || "48", 10) || 48;
@@ -64,6 +66,8 @@ export async function GET(req: Request) {
     } else if (appliedFilter === "not_applied") {
       conditions.push(eq(internships.applied, false));
     }
+    if (dislikedFilter === "disliked") conditions.push(eq(internships.disliked, true));
+    else if (!includeDisliked && dislikedFilter !== "all") conditions.push(eq(internships.disliked, false));
     if (q) {
       const pattern = `%${q}%`;
       conditions.push(
@@ -84,6 +88,8 @@ export async function GET(req: Request) {
 
     const baseConditions: any[] = [];
     if (ageFilter !== "all") baseConditions.push(eq(internships.age, ageFilter));
+    if (dislikedFilter === "disliked") baseConditions.push(eq(internships.disliked, true));
+    else if (!includeDisliked && dislikedFilter !== "all") baseConditions.push(eq(internships.disliked, false));
     if (q) {
       const pattern = `%${q}%`;
       baseConditions.push(
@@ -136,6 +142,7 @@ export async function GET(req: Request) {
       application_links: r.applicationLinks,
       age: r.age ?? undefined,
       applied: r.applied,
+      disliked: r.disliked,
       no_sponsorship: r.noSponsorship,
       requires_citizenship: r.requiresCitizenship,
       is_closed: r.isClosed,
@@ -166,17 +173,29 @@ export async function PATCH(req: Request) {
   try {
     const body = await req.json();
     const id = Number(body.id);
-    const applied = Boolean(body.applied);
+    const hasApplied = typeof body.applied === "boolean";
+    const hasDisliked = typeof body.disliked === "boolean";
     if (!id || Number.isNaN(id)) {
       return NextResponse.json({ error: "Missing or invalid id" }, { status: 400 });
     }
-    const [updated] = await db.update(internships).set({ applied }).where(eq(internships.id, id)).returning();
+    if (!hasApplied && !hasDisliked) {
+      return NextResponse.json({ error: "No supported field to update" }, { status: 400 });
+    }
+    const [updated] = await db
+      .update(internships)
+      .set({
+        ...(hasApplied ? { applied: body.applied } : {}),
+        ...(hasDisliked ? { disliked: body.disliked } : {}),
+      })
+      .where(eq(internships.id, id))
+      .returning();
     if (!updated) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     return NextResponse.json({
       id: updated.id,
       applied: updated.applied,
+      disliked: updated.disliked,
     });
   } catch (e) {
     console.error("PATCH /api/internships failed:", e);

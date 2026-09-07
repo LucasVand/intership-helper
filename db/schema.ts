@@ -10,6 +10,7 @@ export const internships = pgTable(
     applicationLinks: text("application_links").array().notNull(),
     age: text("age"),
     applied: boolean("applied").notNull().default(false),
+    disliked: boolean("disliked").notNull().default(false),
     // Legend flags — parsed from README emojis
     noSponsorship: boolean("no_sponsorship").notNull().default(false), // 🛂
     requiresCitizenship: boolean("requires_citizenship").notNull().default(false), // 🇺🇸
@@ -22,6 +23,7 @@ export const internships = pgTable(
     index("company_idx").on(table.company),
     index("age_idx").on(table.age),
     index("applied_idx").on(table.applied),
+    index("disliked_idx").on(table.disliked),
     index("is_faang_idx").on(table.isFaang),
     index("is_closed_idx").on(table.isClosed),
   ]

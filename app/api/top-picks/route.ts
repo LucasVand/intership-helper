@@ -26,6 +26,7 @@ export async function GET(req: Request) {
   const limitRaw = parseInt(searchParams.get("limit") || "6", 10) || 6;
   const limit = Math.min(24, Math.max(1, limitRaw));
   const excludeApplied = searchParams.get("exclude_applied") !== "false";
+  const includeDisliked = searchParams.get("include_disliked") === "true";
   const tagFilters = {
     is_faang: parseTagFilter(searchParams.get("is_faang")),
     is_closed: parseTagFilter(searchParams.get("is_closed")),
@@ -47,7 +48,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data: [],
       keywords,
-      meta: { source: "db" as const, limit, totalMatching: 0, excludeApplied, filters: tagFilters },
+      meta: { source: "db" as const, limit, totalMatching: 0, excludeApplied, includeDisliked, filters: tagFilters },
     });
   }
 
@@ -59,6 +60,7 @@ export async function GET(req: Request) {
 
     const keywordWhere = or(...conditions);
     const tagConditions: any[] = [];
+    if (!includeDisliked) tagConditions.push(eq(internships.disliked, false));
     if (excludeApplied) tagConditions.push(eq(internships.applied, false));
     if (tagFilters.is_faang !== "all") tagConditions.push(eq(internships.isFaang, tagFilters.is_faang === "only"));
     if (tagFilters.is_closed !== "all") tagConditions.push(eq(internships.isClosed, tagFilters.is_closed === "only"));
@@ -83,6 +85,7 @@ export async function GET(req: Request) {
       application_links: r.applicationLinks,
       age: r.age ?? undefined,
       applied: r.applied,
+      disliked: r.disliked,
       no_sponsorship: r.noSponsorship,
       requires_citizenship: r.requiresCitizenship,
       is_closed: r.isClosed,
@@ -93,7 +96,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data,
       keywords,
-      meta: { source: "db" as const, limit, totalMatching, excludeApplied, filters: tagFilters },
+      meta: { source: "db" as const, limit, totalMatching, excludeApplied, includeDisliked, filters: tagFilters },
     });
   } catch (e) {
     console.error("top-picks DB query failed:", e);
