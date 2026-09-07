@@ -8,7 +8,13 @@ import { SiteNav } from "../components/SiteNav";
 type Keyword = { id: number; keyword: string };
 type TagFilter = "all" | "only" | "exclude";
 const keys: TagKey[] = ["is_faang", "is_closed", "no_sponsorship", "requires_citizenship", "requires_advanced_degree"];
-const labels: Record<TagKey, string> = { is_faang: "FAANG+", is_closed: "Closed", no_sponsorship: "No sponsorship", requires_citizenship: "U.S. Citizenship", requires_advanced_degree: "Advanced degree" };
+const tagDefinitions: Array<{ key: TagKey; label: string; icon: string; activeClasses: string }> = [
+  { key: "is_faang", label: "FAANG+", icon: "🔥", activeClasses: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800" },
+  { key: "requires_advanced_degree", label: "Advanced degree", icon: "🎓", activeClasses: "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800" },
+  { key: "no_sponsorship", label: "No sponsorship", icon: "🛂", activeClasses: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800" },
+  { key: "requires_citizenship", label: "U.S. Citizenship", icon: "🇺🇸", activeClasses: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800" },
+  { key: "is_closed", label: "Closed", icon: "🔒", activeClasses: "bg-zinc-100 text-zinc-700 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700" },
+];
 
 export default function PicksPage() {
   const [keywords, setKeywords] = useState<Keyword[]>([]);
@@ -145,7 +151,32 @@ export default function PicksPage() {
           <div className="mt-4 flex flex-wrap gap-2">{keywords.map((keyword) => <span key={keyword.id} className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs dark:border-amber-800 dark:bg-zinc-900">{keyword.keyword}</span>)}{!keywords.length && <Link href="/" className="text-xs underline">Add keywords from the listings page</Link>}</div>
           <button onClick={() => setShowKeywordsManager(true)} className="mt-5 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white dark:bg-white dark:text-zinc-900">Manage keywords — {keywords.length}</button>
           <div className="mt-4 flex flex-wrap gap-2">
-            {keys.map((key) => <button key={key} onClick={() => setFilters((prev) => ({ ...prev, [key]: prev[key] === "all" ? "exclude" : prev[key] === "exclude" ? "only" : "all" }))} className={`rounded-full border px-3 py-1.5 text-xs ${filters[key] === "only" ? "bg-zinc-900 text-white" : filters[key] === "exclude" ? "line-through text-zinc-500" : "bg-white dark:bg-zinc-900"}`}>{labels[key]} · {filters[key]}</button>)}
+            <span className="text-xs font-medium text-amber-900 dark:text-amber-100">Filter Top Picks:</span>
+            {tagDefinitions.map((tag) => {
+              const value = filters[tag.key];
+              const isOnly = value === "only";
+              const isExclude = value === "exclude";
+              return (
+                <button
+                  key={tag.key}
+                  onClick={() => setFilters((prev) => ({ ...prev, [tag.key]: prev[tag.key] === "all" ? "exclude" : prev[tag.key] === "exclude" ? "only" : "all" }))}
+                  title={`Click to cycle: All → Hide → Only (current: ${value})`}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    isOnly
+                      ? tag.activeClasses
+                      : isExclude
+                        ? "bg-zinc-100 text-zinc-500 border-zinc-300 line-through dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
+                        : "bg-white text-zinc-600 border-amber-200 hover:bg-amber-50 dark:bg-zinc-900 dark:text-zinc-400 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <span>{tag.icon}</span>
+                  <span>{tag.label}</span>
+                  <span className={`ml-0.5 rounded-full px-1 py-0.5 text-[10px] leading-none ${isOnly ? "bg-black/10 dark:bg-white/10" : isExclude ? "bg-zinc-200 dark:bg-zinc-700" : "bg-amber-100 dark:bg-zinc-800"}`}>
+                    {isOnly ? "Only" : isExclude ? "Hide" : "All"}
+                  </span>
+                </button>
+              );
+            })}
             <label className="inline-flex items-center gap-2 px-2 text-xs text-zinc-600 dark:text-zinc-400"><input type="checkbox" checked={excludeApplied} onChange={(e) => setExcludeApplied(e.target.checked)} /> Hide applied</label>
           </div>
         </header>
