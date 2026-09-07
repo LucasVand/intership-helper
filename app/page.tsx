@@ -26,6 +26,14 @@ type Stats = {
 
 const LIMIT = 48;
 const TOP_PICKS_LIMIT = 6;
+const TAG_FILTERS_STORAGE_KEY = "intership-helper:tag-filters";
+const DEFAULT_TAG_FILTERS: Record<TagKey, TagFilter> = {
+  is_faang: "all",
+  is_closed: "all",
+  no_sponsorship: "all",
+  requires_citizenship: "all",
+  requires_advanced_degree: "all",
+};
 
 type SortKey = "newest" | "oldest" | "company" | "role";
 type AppliedFilter = "all" | "applied" | "not_applied";
@@ -52,13 +60,8 @@ export default function Home() {
   const [ageFilter, setAgeFilter] = useState<string>("all");
   const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>("all");
   const [sort, setSort] = useState<SortKey>("newest");
-  const [tagFilters, setTagFilters] = useState<Record<TagKey, TagFilter>>({
-    is_faang: "all",
-    is_closed: "all",
-    no_sponsorship: "all",
-    requires_citizenship: "all",
-    requires_advanced_degree: "all",
-  });
+  const [tagFilters, setTagFilters] = useState<Record<TagKey, TagFilter>>(DEFAULT_TAG_FILTERS);
+  const [tagFiltersHydrated, setTagFiltersHydrated] = useState(false);
 
   // Top Picks + Keywords
   const [keywords, setKeywords] = useState<Keyword[]>([]);
@@ -75,6 +78,37 @@ export default function Home() {
 
   const abortRef = useRef<AbortController | null>(null);
   const [scrollProgress, setScrollProgress] = useState(0);
+
+  useEffect(() => {
+    const restore = window.setTimeout(() => {
+      try {
+        const stored = localStorage.getItem(TAG_FILTERS_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as Partial<Record<TagKey, TagFilter>>;
+          const validValues: TagFilter[] = ["all", "only", "exclude"];
+          const restored = { ...DEFAULT_TAG_FILTERS };
+          (Object.keys(restored) as TagKey[]).forEach((key) => {
+            if (validValues.includes(parsed[key] as TagFilter)) restored[key] = parsed[key] as TagFilter;
+          });
+          setTagFilters(restored);
+        }
+      } catch (e) {
+        console.warn("Could not restore tag filters from local storage:", e);
+      } finally {
+        setTagFiltersHydrated(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(restore);
+  }, []);
+
+  useEffect(() => {
+    if (!tagFiltersHydrated) return;
+    try {
+      localStorage.setItem(TAG_FILTERS_STORAGE_KEY, JSON.stringify(tagFilters));
+    } catch (e) {
+      console.warn("Could not save tag filters to local storage:", e);
+    }
+  }, [tagFilters, tagFiltersHydrated]);
 
   useEffect(() => {
     const t = setTimeout(() => setQuery(queryInput.trim()), 300);
