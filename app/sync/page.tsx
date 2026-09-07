@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { SiteNav } from "../components/SiteNav";
 
 type SyncRun = {
   id: number;
@@ -100,6 +101,7 @@ export default function SyncHistoryPage() {
 
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-zinc-950">
+      <SiteNav />
       <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 dark:bg-zinc-950/80 border-b border-zinc-200 dark:border-zinc-800">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 py-5 sm:py-6">
