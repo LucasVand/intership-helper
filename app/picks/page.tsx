@@ -18,6 +18,11 @@ export default function PicksPage() {
   const [busy, setBusy] = useState(true);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, limit: 24, total: 0, totalPages: 1, hasMore: false });
+  const [newKeyword, setNewKeyword] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+  const [keywordError, setKeywordError] = useState<string | null>(null);
+  const [keywordBusy, setKeywordBusy] = useState(false);
 
   const load = useCallback(async (requestedPage = page) => {
     setBusy(true);
@@ -36,6 +41,58 @@ export default function PicksPage() {
   }, [excludeApplied, filters, page]);
 
   useEffect(() => { load(1); }, [excludeApplied, filters]);
+  const addKeyword = async () => {
+    const value = newKeyword.trim();
+    if (!value) return;
+    setKeywordBusy(true);
+    setKeywordError(null);
+    try {
+      const res = await fetch("/api/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keyword: value }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setKeywords((prev) => [...prev, json].sort((a, b) => a.keyword.localeCompare(b.keyword)));
+      setNewKeyword("");
+      load(1);
+    } catch (error) {
+      setKeywordError(error instanceof Error ? error.message : "Failed to add keyword");
+    } finally {
+      setKeywordBusy(false);
+    }
+  };
+  const saveKeyword = async (id: number) => {
+    const value = editingValue.trim();
+    if (!value) return;
+    setKeywordBusy(true);
+    setKeywordError(null);
+    try {
+      const res = await fetch("/api/keywords", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, keyword: value }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setKeywords((prev) => prev.map((keyword) => keyword.id === id ? json : keyword).sort((a, b) => a.keyword.localeCompare(b.keyword)));
+      setEditingId(null);
+      setEditingValue("");
+      load(1);
+    } catch (error) {
+      setKeywordError(error instanceof Error ? error.message : "Failed to update keyword");
+    } finally {
+      setKeywordBusy(false);
+    }
+  };
+  const deleteKeyword = async (id: number) => {
+    setKeywordBusy(true);
+    setKeywordError(null);
+    try {
+      const res = await fetch(`/api/keywords?id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setKeywords((prev) => prev.filter((keyword) => keyword.id !== id));
+      load(1);
+    } catch (error) {
+      setKeywordError(error instanceof Error ? error.message : "Failed to delete keyword");
+    } finally {
+      setKeywordBusy(false);
+    }
+  };
   const toggle = async (id: number) => {
     const current = picks.find((pick) => pick.id === id);
     if (!current) return;
@@ -57,6 +114,29 @@ export default function PicksPage() {
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">★ Top Picks</h1>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">The newest internships matching your saved keywords.</p>
           <div className="mt-4 flex flex-wrap gap-2">{keywords.map((keyword) => <span key={keyword.id} className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs dark:border-amber-800 dark:bg-zinc-900">{keyword.keyword}</span>)}{!keywords.length && <Link href="/" className="text-xs underline">Add keywords from the listings page</Link>}</div>
+          <div className="mt-5 rounded-xl border border-amber-200 bg-white/70 p-4 dark:border-amber-800 dark:bg-zinc-900/50">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300">Manage keywords</h2>
+            <div className="mt-2 flex gap-2">
+              <input value={newKeyword} onChange={(event) => setNewKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addKeyword(); }} placeholder="Add keyword" className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900" />
+              <button onClick={addKeyword} disabled={keywordBusy || !newKeyword.trim()} className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900">Add</button>
+            </div>
+            {keywordError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{keywordError}</p>}
+            <div className="mt-3 space-y-2">
+              {keywords.map((keyword) => editingId === keyword.id ? (
+                <div key={keyword.id} className="flex gap-2">
+                  <input value={editingValue} onChange={(event) => setEditingValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") saveKeyword(keyword.id); if (event.key === "Escape") setEditingId(null); }} className="min-w-0 flex-1 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900" autoFocus />
+                  <button onClick={() => saveKeyword(keyword.id)} disabled={keywordBusy} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Save</button>
+                  <button onClick={() => setEditingId(null)} className="rounded-lg border px-3 py-1.5 text-xs">Cancel</button>
+                </div>
+              ) : (
+                <div key={keyword.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                  <span className="min-w-0 flex-1 truncate text-sm">{keyword.keyword}</span>
+                  <button onClick={() => { setEditingId(keyword.id); setEditingValue(keyword.keyword); setKeywordError(null); }} className="rounded-lg border px-2.5 py-1 text-xs">Edit</button>
+                  <button onClick={() => deleteKeyword(keyword.id)} disabled={keywordBusy} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-red-600 disabled:opacity-50">Delete</button>
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {keys.map((key) => <button key={key} onClick={() => setFilters((prev) => ({ ...prev, [key]: prev[key] === "all" ? "exclude" : prev[key] === "exclude" ? "only" : "all" }))} className={`rounded-full border px-3 py-1.5 text-xs ${filters[key] === "only" ? "bg-zinc-900 text-white" : filters[key] === "exclude" ? "line-through text-zinc-500" : "bg-white dark:bg-zinc-900"}`}>{labels[key]} · {filters[key]}</button>)}
             <label className="inline-flex items-center gap-2 px-2 text-xs text-zinc-600 dark:text-zinc-400"><input type="checkbox" checked={excludeApplied} onChange={(e) => setExcludeApplied(e.target.checked)} /> Hide applied</label>
