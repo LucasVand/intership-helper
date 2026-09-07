@@ -64,6 +64,7 @@ export default function Home() {
   const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [topPicks, setTopPicks] = useState<Internship[]>([]);
   const [topPicksMeta, setTopPicksMeta] = useState<{ totalMatching: number; limit: number; source: string } | null>(null);
+  const [excludeAppliedTopPicks, setExcludeAppliedTopPicks] = useState(true);
   const [isTopPicksLoading, setIsTopPicksLoading] = useState(false);
   const [showKeywordsManager, setShowKeywordsManager] = useState(false);
   const [newKeyword, setNewKeyword] = useState("");
@@ -169,6 +170,7 @@ export default function Home() {
     try {
       const params = new URLSearchParams();
       params.set("limit", String(TOP_PICKS_LIMIT));
+      if (!excludeAppliedTopPicks) params.set("exclude_applied", "false");
       (Object.keys(tagFilters) as TagKey[]).forEach((k) => {
         if (tagFilters[k] !== "all") params.set(k, tagFilters[k]);
       });
@@ -186,7 +188,7 @@ export default function Home() {
     } finally {
       setIsTopPicksLoading(false);
     }
-  }, [tagFilters]);
+  }, [excludeAppliedTopPicks, tagFilters]);
 
   useEffect(() => {
     fetchKeywords();
@@ -315,7 +317,7 @@ export default function Home() {
     const nextApplied = !current.applied;
     const updateList = (list: Internship[]) => list.map((i) => (i.id === id ? { ...i, applied: nextApplied } : i));
     setInternships((prev) => updateList(prev));
-    setTopPicks((prev) => updateList(prev));
+    if (nextApplied) setTopPicks((prev) => updateList(prev));
     setStats((prev) => {
       if (appliedFilter !== "all") return prev;
       const delta = nextApplied ? 1 : -1;
@@ -326,11 +328,14 @@ export default function Home() {
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: Boolean(data.applied) } : i)));
-      setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: Boolean(data.applied) } : i)));
+      if (nextApplied) {
+        setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: Boolean(data.applied) } : i)));
+        if (excludeAppliedTopPicks) await fetchTopPicks();
+      }
     } catch (e) {
       console.error("PATCH failed:", e);
       setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
-      setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
+      if (nextApplied) setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
     }
   };
 
@@ -518,6 +523,15 @@ export default function Home() {
           <div className="mt-3 flex flex-wrap gap-1.5">
             {keywords.length ? keywords.map((k) => <span key={k.id} className="inline-flex items-center rounded-full bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-800 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">{k.keyword}</span>) : <span className="text-xs text-zinc-500 dark:text-zinc-400">No keywords yet — add one to see top picks.</span>}
           </div>
+          <label className="mt-3 inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+            <input
+              type="checkbox"
+              checked={excludeAppliedTopPicks}
+              onChange={(e) => setExcludeAppliedTopPicks(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-amber-300 text-amber-500 focus:ring-amber-500"
+            />
+            Hide applied internships from Top Picks
+          </label>
           {/* Tag filters inside Top Picks — same state as main list, backend-filtered */}
           <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-800 bg-white/70 dark:bg-zinc-900/50 px-3 py-2.5">
             <span className="text-xs font-medium text-amber-900 dark:text-amber-100">Filter Top Picks:</span>

@@ -36,7 +36,10 @@ jobs:
         run: docker compose --env-file /opt/intership-helper/.env.production up -d db
 
       - name: Run database migrations
-        run: docker compose --env-file /opt/intership-helper/.env.production run --rm migrate
+        run: docker compose --env-file /opt/intership-helper/.env.production run --build --rm migrate
+
+      - name: Sync internship data
+        run: docker compose --env-file /opt/intership-helper/.env.production run --build --rm sync
 
       - name: Show database logs after migration failure
         if: failure()
