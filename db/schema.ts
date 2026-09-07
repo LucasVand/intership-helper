@@ -8,6 +8,7 @@ export const internships = pgTable(
     role: text("role").notNull(),
     location: text("location").notNull(),
     applicationLink: text("application_link").notNull().unique(),
+    source: text("source").notNull().default("simplify"),
     postedAt: timestamp("posted_at"),
     applied: boolean("applied").notNull().default(false),
     disliked: boolean("disliked").notNull().default(false),
@@ -63,6 +64,7 @@ export const syncRuns = pgTable(
     // optional details
     error: text("error"),
     scrapedUrl: text("scraped_url"),
+    source: text("source").notNull().default("combined"),
   },
   (table) => [index("sync_runs_created_at_idx").on(table.createdAt)]
 );

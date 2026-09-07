@@ -2,14 +2,15 @@ import * as dotenv from "dotenv";
 dotenv.config({ path: ".env" });
 dotenv.config({ path: ".env.local" });
 
-import fetch from "node-fetch";
-import * as cheerio from "cheerio";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
 import { internships, syncRuns } from "../db/schema";
+import { canadianTechSource } from "./sources/canadian-tech";
+import { simplifySource } from "./sources/simplify";
+import type { InternshipSourceAdapter, ScrapedInternship } from "./sources/types";
 
-const RAW_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md";
+const SOURCES: InternshipSourceAdapter[] = [simplifySource, canadianTechSource];
 
 function getDatabaseUrl(): string | undefined {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
@@ -22,142 +23,8 @@ function getDatabaseUrl(): string | undefined {
   return `postgresql://${encodeURIComponent(POSTGRES_USER)}:${encodeURIComponent(POSTGRES_PASSWORD)}@${host}:${port}/${encodeURIComponent(POSTGRES_DB)}`;
 }
 
-type ScrapedInternship = {
-  company: string;
-  role: string;
-  location: string;
-  application_links: string[];
-  posted_at?: Date;
-  no_sponsorship?: boolean;
-  requires_citizenship?: boolean;
-  is_closed?: boolean;
-  is_faang?: boolean;
-  requires_advanced_degree?: boolean;
-};
-
-function parsePostedAt(age?: string): Date | undefined {
-  if (!age) return undefined;
-  const match = age.trim().toLowerCase().match(/^(\d+)\s*(m|min|mins|h|hr|hrs|d|day|days|w|wk|wks|mo|mos)$/);
-  if (!match) return undefined;
-  const value = Number(match[1]);
-  const unit = match[2];
-  const minutes =
-    unit === "m" || unit === "min" || unit === "mins" ? value :
-    unit === "h" || unit === "hr" || unit === "hrs" ? value * 60 :
-    unit === "w" || unit === "wk" || unit === "wks" ? value * 7 * 24 * 60 :
-    unit === "mo" || unit === "mos" ? value * 30 * 24 * 60 :
-    value * 24 * 60;
-  return new Date(Date.now() - minutes * 60 * 1000);
-}
-
-async function fetchReadme(): Promise<string> {
-  const res = await fetch(RAW_URL, { headers: { "User-Agent": "node.js" } });
-  if (!res.ok) throw new Error(`Failed to fetch README: ${res.status} ${res.statusText}`);
-  return await res.text();
-}
-
-function extractFlags(text: string) {
-  return {
-    noSponsorship: text.includes("🛂"),
-    requiresCitizenship: text.includes("🇺🇸"),
-    isClosed: text.includes("🔒"),
-    isFaang: text.includes("🔥"),
-    requiresAdvancedDegree: text.includes("🎓"),
-  };
-}
-
-function cleanText(text: string): string {
-  return text
-    .replace(/🛂/g, "")
-    .replace(/🇺🇸/g, "")
-    .replace(/🔒/g, "")
-    .replace(/🔥/g, "")
-    .replace(/🎓/g, "")
-    .trim()
-    .replace(/\s{2,}/g, " ");
-}
-
-function parseReadme(mdOrHtml: string): ScrapedInternship[] {
-  const $ = cheerio.load(mdOrHtml);
-  const rows = $("table tbody tr");
-  const result: ScrapedInternship[] = [];
-  let lastCompany = "";
-  let lastFlags = { noSponsorship: false, requiresCitizenship: false, isClosed: false, isFaang: false, requiresAdvancedDegree: false };
-
-  rows.each((_, tr) => {
-    const tds = $(tr).find("td");
-    if (tds.length === 0) return;
-
-    const companyCell = $(tds.get(0));
-    const rawCompanyFull = companyCell.text().trim();
-    const rawCompanyLink = companyCell.find("a").first().text().trim() || rawCompanyFull;
-    const isContinuation = /^↳/.test(rawCompanyFull) || /^↳/.test(rawCompanyLink) || rawCompanyFull === "↳";
-
-    let company: string;
-    let companyFlags = { noSponsorship: false, requiresCitizenship: false, isClosed: false, isFaang: false, requiresAdvancedDegree: false };
-    if (isContinuation) {
-      company = lastCompany;
-      companyFlags = lastFlags;
-    } else {
-      const flags = extractFlags(rawCompanyFull);
-      companyFlags = flags;
-      company = cleanText(rawCompanyLink || rawCompanyFull);
-      if (company) {
-        lastCompany = company;
-        lastFlags = flags;
-      }
-    }
-
-    const rawRole = $(tds.get(1)).text().trim();
-    const roleFlags = extractFlags(rawRole);
-    const role = cleanText(rawRole);
-    const location = $(tds.get(2)).text().replace(/\n+/g, ", ").replace(/\s+,/g, ",").trim();
-
-    const applicationLinks: string[] = [];
-    if (tds.length >= 4) {
-      $(tds.get(3))
-        .find("a")
-        .each((__, a) => {
-          const href = $(a).attr("href");
-          if (href) applicationLinks.push(href.trim());
-        });
-    }
-
-    const age = tds.length >= 5 ? $(tds.get(4)).text().trim() : undefined;
-    if (!company && !role) return;
-
-    const flagsCombined = {
-      no_sponsorship: companyFlags.noSponsorship || roleFlags.noSponsorship,
-      requires_citizenship: companyFlags.requiresCitizenship || roleFlags.requiresCitizenship,
-      is_closed: companyFlags.isClosed || roleFlags.isClosed,
-      is_faang: companyFlags.isFaang || roleFlags.isFaang,
-      requires_advanced_degree: companyFlags.requiresAdvancedDegree || roleFlags.requiresAdvancedDegree,
-    };
-
-    result.push({
-      company,
-      role,
-      location,
-      application_links: applicationLinks,
-      posted_at: parsePostedAt(age),
-      no_sponsorship: flagsCombined.no_sponsorship || undefined,
-      requires_citizenship: flagsCombined.requires_citizenship || undefined,
-      is_closed: flagsCombined.is_closed || undefined,
-      is_faang: flagsCombined.is_faang || undefined,
-      requires_advanced_degree: flagsCombined.requires_advanced_degree || undefined,
-    });
-  });
-
-  return result;
-}
-
-function selectApplicationLink(links: string[]): string | undefined {
-  const link = links[0]?.trim();
-  return link || undefined;
-}
-
-function makeKey(r: { application_links?: string[]; applicationLink?: string }): string | undefined {
-  return r.applicationLink?.trim() || selectApplicationLink(r.application_links ?? []);
+function makeKey(r: ScrapedInternship | { applicationLink: string }): string {
+  return r.applicationLink.trim();
 }
 
 async function recordSyncRun(
@@ -186,6 +53,7 @@ async function recordSyncRun(
       status: data.status,
       error: data.error ?? null,
       scrapedUrl: data.scrapedUrl,
+      source: "combined",
     });
     console.log(`  sync history recorded: ${data.status} +${data.insertedCount} ~${data.updatedCount} in ${data.durationMs}ms`);
   } catch (e) {
@@ -224,14 +92,18 @@ Examples:
     process.exit(0);
   }
 
-  console.log("Fetching internships from SimplifyJobs repo...");
-  console.log(`  ${RAW_URL}`);
+  console.log("Fetching internships from configured sources...");
+  SOURCES.forEach((source) => console.log(`  ${source.source}: ${source.url}`));
   let scraped: ScrapedInternship[] = [];
   try {
-    const readme = await fetchReadme();
-    scraped = parseReadme(readme);
+    const batches = await Promise.all(SOURCES.map(async (source) => {
+      const rows = await source.fetchAndParse();
+      console.log(`  ${source.source}: found ${rows.length} rows`);
+      return rows;
+    }));
+    scraped = batches.flat();
   } catch (e: any) {
-    console.error("Failed to fetch/parse README:", e?.message ?? e);
+    console.error("Failed to fetch/parse internship source:", e?.message ?? e);
     // if DB available, record failure
     const connectionString = getDatabaseUrl();
     if (connectionString) {
@@ -247,14 +119,14 @@ Examples:
           durationMs: Date.now() - startMs,
           status: "failed",
           error: String(e?.message ?? e).slice(0, 2000),
-          scrapedUrl: RAW_URL,
+          scrapedUrl: SOURCES.map((source) => source.url).join(","),
         });
         await pool.end();
       } catch {}
     }
     process.exit(1);
   }
-  console.log(`Found ${scraped.length} rows in README`);
+  console.log(`Found ${scraped.length} rows across all sources`);
 
   const connectionString = getDatabaseUrl();
   if (!connectionString) {
@@ -284,7 +156,7 @@ Examples:
         durationMs,
         status: "failed",
         error: String(e?.message ?? e).slice(0, 2000),
-        scrapedUrl: RAW_URL,
+        scrapedUrl: SOURCES.map((source) => source.url).join(","),
       });
     } catch {}
     await pool.end();
@@ -306,18 +178,18 @@ Examples:
   });
 
   // Also detect existing rows where legend flags or cleaned text have changed (backfill)
-  const toUpdate: Array<{ id: number; flags: ScrapedInternship; cleanCompany: string; cleanRole: string }> = [];
+  const toUpdate: Array<{ id: number; flags: ScrapedInternship; cleanCompany: string; cleanRole: string; source: string }> = [];
   for (const s of scraped) {
     const key = makeKey(s);
     if (!key) continue;
     const ex = existingMap.get(key);
     if (!ex) continue;
     const sFlags = {
-      noSponsorship: Boolean(s.no_sponsorship),
-      requiresCitizenship: Boolean(s.requires_citizenship),
-      isClosed: Boolean(s.is_closed),
-      isFaang: Boolean(s.is_faang),
-      requiresAdvancedDegree: Boolean(s.requires_advanced_degree),
+      noSponsorship: Boolean(s.noSponsorship),
+      requiresCitizenship: Boolean(s.requiresCitizenship),
+      isClosed: Boolean(s.isClosed),
+      isFaang: Boolean(s.isFaang),
+      requiresAdvancedDegree: Boolean(s.requiresAdvancedDegree),
     };
     const needsFlagUpdate =
       ex.noSponsorship !== sFlags.noSponsorship ||
@@ -326,18 +198,20 @@ Examples:
       ex.isFaang !== sFlags.isFaang ||
       ex.requiresAdvancedDegree !== sFlags.requiresAdvancedDegree;
     const needsTextUpdate = ex.company !== s.company || ex.role !== s.role;
+    const mergedSource = ex.source === s.source || ex.source === "multiple" ? ex.source : "multiple";
+    const needsSourceUpdate = ex.source !== mergedSource;
     const needsPostedAtUpdate =
-      Boolean(s.posted_at) &&
-      (!ex.postedAt || Math.abs(ex.postedAt.getTime() - s.posted_at!.getTime()) > 12 * 60 * 60 * 1000);
-    if (needsFlagUpdate || needsTextUpdate || needsPostedAtUpdate) {
-      toUpdate.push({ id: ex.id, flags: s, cleanCompany: s.company, cleanRole: s.role });
+      Boolean(s.postedAt) &&
+      (!ex.postedAt || Math.abs(ex.postedAt.getTime() - s.postedAt!.getTime()) > 12 * 60 * 60 * 1000);
+    if (needsFlagUpdate || needsTextUpdate || needsPostedAtUpdate || needsSourceUpdate) {
+      toUpdate.push({ id: ex.id, flags: s, cleanCompany: s.company, cleanRole: s.role, source: mergedSource });
     }
   }
 
   console.log(`New entries to insert: ${newEntries.length} (out of ${scraped.length} scraped)`);
   console.log(`Existing rows needing flag update: ${toUpdate.length}`);
   if (verbose && newEntries.length) {
-    newEntries.slice(0, 10).forEach((e) => console.log(`  + ${e.company} — ${e.role} — ${e.location} ${e.is_faang ? "🔥" : ""}${e.requires_advanced_degree ? "🎓" : ""}`));
+    newEntries.slice(0, 10).forEach((e) => console.log(`  + [${e.source}] ${e.company} — ${e.role} — ${e.location}`));
     if (newEntries.length > 10) console.log(`  ... and ${newEntries.length - 10} more`);
   }
   if (verbose && toUpdate.length) {
@@ -357,7 +231,7 @@ Examples:
       durationMs,
       status: "success",
       error: null,
-      scrapedUrl: RAW_URL,
+      scrapedUrl: SOURCES.map((source) => source.url).join(","),
     });
     await pool.end();
     process.exit(0);
@@ -375,7 +249,7 @@ Examples:
       durationMs,
       status: "dry_run",
       error: null,
-      scrapedUrl: RAW_URL,
+      scrapedUrl: SOURCES.map((source) => source.url).join(","),
     });
     await pool.end();
     process.exit(0);
@@ -389,14 +263,15 @@ Examples:
       company: row.company,
       role: row.role,
       location: row.location,
-      applicationLink: selectApplicationLink(row.application_links)!,
-      postedAt: row.posted_at ?? null,
+      applicationLink: row.applicationLink,
+      source: row.source,
+      postedAt: row.postedAt ?? null,
       applied: false,
-      noSponsorship: Boolean(row.no_sponsorship),
-      requiresCitizenship: Boolean(row.requires_citizenship),
-      isClosed: Boolean(row.is_closed),
-      isFaang: Boolean(row.is_faang),
-      requiresAdvancedDegree: Boolean(row.requires_advanced_degree),
+      noSponsorship: Boolean(row.noSponsorship),
+      requiresCitizenship: Boolean(row.requiresCitizenship),
+      isClosed: Boolean(row.isClosed),
+      isFaang: Boolean(row.isFaang),
+      requiresAdvancedDegree: Boolean(row.requiresAdvancedDegree),
     }));
     await db.insert(internships).values(batch);
     inserted += batch.length;
@@ -411,12 +286,13 @@ Examples:
       .set({
         company: u.cleanCompany,
         role: u.cleanRole,
-        noSponsorship: Boolean(u.flags.no_sponsorship),
-        requiresCitizenship: Boolean(u.flags.requires_citizenship),
-        isClosed: Boolean(u.flags.is_closed),
-        isFaang: Boolean(u.flags.is_faang),
-        requiresAdvancedDegree: Boolean(u.flags.requires_advanced_degree),
-        postedAt: u.flags.posted_at ?? null,
+        noSponsorship: Boolean(u.flags.noSponsorship),
+        requiresCitizenship: Boolean(u.flags.requiresCitizenship),
+        isClosed: Boolean(u.flags.isClosed),
+        isFaang: Boolean(u.flags.isFaang),
+        requiresAdvancedDegree: Boolean(u.flags.requiresAdvancedDegree),
+        source: u.source,
+        postedAt: u.flags.postedAt ?? null,
       })
       .where(eq(internships.id, u.id));
     updated++;
@@ -435,7 +311,7 @@ Examples:
     durationMs,
     status: "success",
     error: null,
-    scrapedUrl: RAW_URL,
+    scrapedUrl: SOURCES.map((source) => source.url).join(","),
   });
 
   await pool.end();
@@ -458,7 +334,7 @@ main().catch(async (err) => {
         durationMs: 0,
         status: "failed",
         error: String(err?.message ?? err).slice(0, 2000),
-        scrapedUrl: RAW_URL,
+        scrapedUrl: SOURCES.map((source) => source.url).join(","),
       });
       await pool.end();
     }
