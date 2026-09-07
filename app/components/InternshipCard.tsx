@@ -30,8 +30,17 @@ function ageBadgeClasses(age?: string): string {
 
 function formatAgeLabel(age?: string): string {
   if (!age) return "—";
-  if (age === "0d") return "Today";
-  if (age === "1d") return "1 day ago";
+  const match = age.trim().toLowerCase().match(/^(\d+)\s*(m|min|mins|h|hr|hrs|d|day|days|w|wk|wks|mo|mos)$/);
+  if (!match) return `${age} ago`;
+
+  const value = Number(match[1]);
+  const unit = match[2];
+  if (unit === "m" || unit === "min" || unit === "mins") return `${value} minute${value === 1 ? "" : "s"} ago`;
+  if (unit === "h" || unit === "hr" || unit === "hrs") return `${value} hour${value === 1 ? "" : "s"} ago`;
+  if (unit === "d" || unit === "day" || unit === "days") {
+    if (value === 0) return "Under 24 hours ago";
+    if (value === 1) return "1 day ago";
+  }
   return `${age} ago`;
 }
 
