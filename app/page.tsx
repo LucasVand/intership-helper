@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { InternshipCard, type Internship, type TagKey } from "./components/InternshipCard";
+import { SiteNav } from "./components/SiteNav";
 
 type Keyword = {
   id: number;
@@ -25,7 +26,7 @@ type Stats = {
 };
 
 const LIMIT = 48;
-const TOP_PICKS_LIMIT = 6;
+const TOP_PICKS_LIMIT = 3;
 const TAG_FILTERS_STORAGE_KEY = "intership-helper:tag-filters";
 const DEFAULT_TAG_FILTERS: Record<TagKey, TagFilter> = {
   is_faang: "all",
@@ -403,6 +404,7 @@ export default function Home() {
   const headerShadowOpacity = p * 0.08;
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-zinc-950">
+      <SiteNav />
       <header
         className="sticky top-0 z-30 backdrop-blur-xl border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80"
         style={{
@@ -549,7 +551,7 @@ export default function Home() {
         <section className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20 p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center gap-2"><span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white text-xs">★</span> Top Picks <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">most recent matching your keywords</span></h2>
+              <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center gap-2"><span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white text-xs">★</span> Top Picks <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">preview</span><Link href="/picks" className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-300">Open full page →</Link></h2>
               <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">Matches <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">{keywords.length ? keywords.map((k) => k.keyword).join(", ") : "—"}</span> in company / role / location (case-insensitive). <span className="hidden sm:inline">Sorted newest first.</span></p>
             </div>
             <button onClick={() => setShowKeywordsManager(true)} className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 dark:bg-white px-4 py-2 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100">Manage keywords — {keywords.length}</button>

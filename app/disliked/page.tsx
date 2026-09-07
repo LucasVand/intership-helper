@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { InternshipCard, type Internship } from "../components/InternshipCard";
+import { SiteNav } from "../components/SiteNav";
 
 type Pagination = {
   page: number;
@@ -83,6 +84,7 @@ export default function DislikedPage() {
 
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-zinc-950">
+      <SiteNav />
       <header className="sticky top-0 z-30 border-b border-zinc-200 bg-white/80 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-950/80">
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
           <div className="flex flex-wrap items-start justify-between gap-4">

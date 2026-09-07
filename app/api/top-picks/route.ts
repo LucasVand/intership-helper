@@ -32,8 +32,10 @@ export async function GET(req: Request) {
   }
 
   const { searchParams } = new URL(req.url);
-  const limitRaw = parseInt(searchParams.get("limit") || "6", 10) || 6;
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+  const limitRaw = parseInt(searchParams.get("limit") || "24", 10) || 24;
   const limit = Math.min(24, Math.max(1, limitRaw));
+  const offset = (page - 1) * limit;
   const excludeApplied = searchParams.get("exclude_applied") !== "false";
   const includeDisliked = searchParams.get("include_disliked") === "true";
   const tagFilters = {
@@ -57,6 +59,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data: [],
       keywords,
+      pagination: { page, limit, total: 0, totalPages: 1, hasMore: false },
       meta: { source: "db" as const, limit, totalMatching: 0, excludeApplied, includeDisliked, filters: tagFilters },
     });
   }
@@ -84,7 +87,8 @@ export async function GET(req: Request) {
 
     const orderBy = sql`${internships.postedAt} DESC NULLS LAST, ${internships.id} ASC`;
 
-    const rows = await db.select().from(internships).where(where).orderBy(orderBy).limit(limit);
+    const totalPages = Math.max(1, Math.ceil(totalMatching / limit));
+    const rows = await db.select().from(internships).where(where).orderBy(orderBy).limit(limit).offset(offset);
 
     const data = rows.map((r) => ({
       id: r.id,
@@ -106,6 +110,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       data,
+      pagination: { page, limit, total: totalMatching, totalPages, hasMore: page < totalPages },
       keywords,
       meta: { source: "db" as const, limit, totalMatching, excludeApplied, includeDisliked, filters: tagFilters },
     });
