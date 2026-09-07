@@ -50,3 +50,55 @@ jobs:
 
       - name: Run tests
         run: npm run test --if-present
+
+  db:
+    name: db / migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: intership-helper
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/intership-helper
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Postgres
+        run: |
+          echo "Waiting for Postgres on localhost:5432..."
+          for i in {1..30}; do
+            if (echo > /dev/tcp/localhost/5432) >/dev/null 2>&1; then
+              echo "✓ Postgres is ready (after ${i}s)"
+              exit 0
+            fi
+            echo "  waiting... ($i/30)"
+            sleep 1
+          done
+          echo "✗ Postgres not ready after 30s"
+          exit 1
+
+      - name: Run migrations (ephemeral DB)
+        run: npm run db:migrate
+
+      - name: Dry-run sync (parse + dedup check)
+        run: npm run db:sync:dry
