@@ -43,7 +43,7 @@ jobs:
 
       - name: Show database logs after migration failure
         if: failure()
-        run: docker compose --env-file /opt/intership-helper/.env.production logs --no-color db
+        run: docker compose --env-file /opt/intership-helper/.env.production logs --no-color db || docker logs intership-helper-postgres --tail 200 || true
 
       - name: Build and start application
         run: docker compose --env-file /opt/intership-helper/.env.production up -d --build app
