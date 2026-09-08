@@ -5,12 +5,6 @@ import Link from "next/link";
 import { InternshipCard, type Internship, type TagKey } from "./components/InternshipCard";
 import { SiteNav } from "./components/SiteNav";
 
-type Keyword = {
-  id: number;
-  keyword: string;
-  created_at?: string;
-};
-
 type Pagination = {
   page: number;
   limit: number;
@@ -23,10 +17,10 @@ type Stats = {
   total: number;
   applied: number;
   notApplied: number;
+  disliked: number;
 };
 
 const LIMIT = 48;
-const TOP_PICKS_LIMIT = 3;
 const TAG_FILTERS_STORAGE_KEY = "intership-helper:tag-filters";
 const DEFAULT_TAG_FILTERS: Record<TagKey, TagFilter> = {
   is_faang: "all",
@@ -50,7 +44,7 @@ const TAG_DEFS: Array<{ key: TagKey; label: string; icon: string; activeClasses:
 export default function Home() {
   const [internships, setInternships] = useState<Internship[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: LIMIT, total: 0, totalPages: 1, hasMore: false });
-  const [stats, setStats] = useState<Stats>({ total: 0, applied: 0, notApplied: 0 });
+  const [stats, setStats] = useState<Stats>({ total: 0, applied: 0, notApplied: 0, disliked: 0 });
   const [facets, setFacets] = useState<{ ages: string[] }>({ ages: [] });
   const metaSource = "db";
   const [isLoading, setIsLoading] = useState(true);
@@ -63,19 +57,6 @@ export default function Home() {
   const [sort, setSort] = useState<SortKey>("newest");
   const [tagFilters, setTagFilters] = useState<Record<TagKey, TagFilter>>(DEFAULT_TAG_FILTERS);
   const [tagFiltersHydrated, setTagFiltersHydrated] = useState(false);
-
-  // Top Picks + Keywords
-  const [keywords, setKeywords] = useState<Keyword[]>([]);
-  const [topPicks, setTopPicks] = useState<Internship[]>([]);
-  const [topPicksMeta, setTopPicksMeta] = useState<{ totalMatching: number; limit: number; source: string } | null>(null);
-  const [excludeAppliedTopPicks, setExcludeAppliedTopPicks] = useState(true);
-  const [isTopPicksLoading, setIsTopPicksLoading] = useState(false);
-  const [showKeywordsManager, setShowKeywordsManager] = useState(false);
-  const [newKeyword, setNewKeyword] = useState("");
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editingValue, setEditingValue] = useState("");
-  const [keywordError, setKeywordError] = useState<string | null>(null);
-  const [keywordBusy, setKeywordBusy] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -186,120 +167,6 @@ export default function Home() {
     fetchPage(1, false);
   }, [fetchPage]);
 
-  const fetchKeywords = useCallback(async () => {
-    try {
-      const res = await fetch("/api/keywords");
-      if (!res.ok) {
-        if (res.status === 503) setKeywords([]);
-        return;
-      }
-      const data = (await res.json()) as Keyword[];
-      setKeywords(data);
-    } catch (e) {
-      console.error("fetchKeywords failed:", e);
-    }
-  }, []);
-
-  const fetchTopPicks = useCallback(async () => {
-    setIsTopPicksLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", String(TOP_PICKS_LIMIT));
-      if (!excludeAppliedTopPicks) params.set("exclude_applied", "false");
-      (Object.keys(tagFilters) as TagKey[]).forEach((k) => {
-        if (tagFilters[k] !== "all") params.set(k, tagFilters[k]);
-      });
-      const res = await fetch(`/api/top-picks?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setTopPicks(json.data as Internship[]);
-      setTopPicksMeta({ totalMatching: json.meta?.totalMatching ?? json.data.length, limit: json.meta?.limit ?? TOP_PICKS_LIMIT, source: json.meta?.source ?? "json" });
-      if (json.keywords) {
-        // keep keywords in sync if backend is source of truth, but don't overwrite local edits in flight
-        // we already fetch keywords separately, so just ensure consistency
-      }
-    } catch (e) {
-      console.error("fetchTopPicks failed:", e);
-    } finally {
-      setIsTopPicksLoading(false);
-    }
-  }, [excludeAppliedTopPicks, tagFilters]);
-
-  useEffect(() => {
-    fetchKeywords();
-  }, [fetchKeywords]);
-
-  useEffect(() => {
-    fetchTopPicks();
-  }, [fetchTopPicks]);
-
-  // Refetch top picks when keywords change (after add/edit/delete)
-  useEffect(() => {
-    // avoid double fetch on initial mount (already fetched), but fetching again is cheap
-    // we debounce slightly to avoid race with fetchKeywords
-    const t = setTimeout(() => fetchTopPicks(), 50);
-    return () => clearTimeout(t);
-  }, [keywords.length, fetchTopPicks]);
-
-  const handleAddKeyword = async () => {
-    const v = newKeyword.trim();
-    if (!v) return;
-    if (v.length > 100) { setKeywordError("Max 100 chars"); return; }
-    if (keywords.some((k) => k.keyword.toLowerCase() === v.toLowerCase())) { setKeywordError("Already exists"); return; }
-    setKeywordBusy(true);
-    setKeywordError(null);
-    try {
-      const res = await fetch("/api/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keyword: v }) });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
-      }
-      const created = (await res.json()) as Keyword;
-      setKeywords((prev) => [...prev, created].sort((a, b) => a.keyword.localeCompare(b.keyword)));
-      setNewKeyword("");
-      fetchTopPicks();
-    } catch (e: any) {
-      setKeywordError(e.message || "Failed to add");
-    } finally {
-      setKeywordBusy(false);
-    }
-  };
-
-  const handleDeleteKeyword = async (id: number) => {
-    setKeywordBusy(true);
-    try {
-      const res = await fetch(`/api/keywords?id=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-      setKeywords((prev) => prev.filter((k) => k.id !== id));
-      fetchTopPicks();
-    } catch (e: any) {
-      setKeywordError(e.message || "Failed to delete");
-    } finally {
-      setKeywordBusy(false);
-    }
-  };
-
-  const handleEditKeyword = async (id: number) => {
-    const v = editingValue.trim();
-    if (!v) { setKeywordError("Keyword required"); return; }
-    if (keywords.some((k) => k.id !== id && k.keyword.toLowerCase() === v.toLowerCase())) { setKeywordError("Already exists"); return; }
-    setKeywordBusy(true);
-    try {
-      const res = await fetch("/api/keywords", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, keyword: v }) });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-      const updated = (await res.json()) as Keyword;
-      setKeywords((prev) => prev.map((k) => (k.id === id ? updated : k)).sort((a, b) => a.keyword.localeCompare(b.keyword)));
-      setEditingId(null);
-      setEditingValue("");
-      setKeywordError(null);
-      fetchTopPicks();
-    } catch (e: any) {
-      setKeywordError(e.message || "Failed to update");
-    } finally {
-      setKeywordBusy(false);
-    }
-  };
-
   const handleQueryInputChange = (v: string) => setQueryInput(v);
   const handleAgeChange = (v: string) => setAgeFilter(v);
   const handleAppliedChange = (v: AppliedFilter) => setAppliedFilter(v);
@@ -346,44 +213,35 @@ export default function Home() {
   };
 
   const toggleApplied = async (id: number) => {
-    // also need to check topPicks list
-    const current = internships.find((i) => i.id === id) ?? topPicks.find((i) => i.id === id);
+    const current = internships.find((i) => i.id === id);
     if (!current) return;
     const nextApplied = !current.applied;
     const updateList = (list: Internship[]) => list.map((i) => (i.id === id ? { ...i, applied: nextApplied } : i));
     setInternships((prev) => updateList(prev));
-    if (nextApplied) setTopPicks((prev) => updateList(prev));
     setStats((prev) => {
       if (appliedFilter !== "all") return prev;
       const delta = nextApplied ? 1 : -1;
-      return { total: prev.total, applied: prev.applied + delta, notApplied: prev.notApplied - delta };
+      return { ...prev, applied: prev.applied + delta, notApplied: prev.notApplied - delta };
     });
     try {
       const res = await fetch("/api/internships", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, applied: nextApplied }) });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: Boolean(data.applied) } : i)));
-      if (nextApplied) {
-        setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: Boolean(data.applied) } : i)));
-        if (excludeAppliedTopPicks) await fetchTopPicks();
-      }
     } catch (e) {
       console.error("PATCH failed:", e);
       setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
-      if (nextApplied) setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current.applied } : i)));
     }
   };
 
   const toggleDisliked = async (id: number) => {
-    const current = internships.find((i) => i.id === id) ?? topPicks.find((i) => i.id === id);
+    const current = internships.find((i) => i.id === id);
     if (!current) return;
     const nextDisliked = !current.disliked;
     if (nextDisliked) {
       setInternships((prev) => prev.filter((i) => i.id !== id));
-      setTopPicks((prev) => prev.filter((i) => i.id !== id));
     } else {
       setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, disliked: false } : i)));
-      setTopPicks((prev) => prev.map((i) => (i.id === id ? { ...i, disliked: false } : i)));
     }
     try {
       const res = await fetch("/api/internships", {
@@ -395,7 +253,6 @@ export default function Home() {
     } catch (e) {
       console.error("PATCH disliked failed:", e);
       setInternships((prev) => (prev.some((i) => i.id === id) ? prev : [...prev, { ...current, disliked: current.disliked }]));
-      setTopPicks((prev) => (prev.some((i) => i.id === id) ? prev : [...prev, { ...current, disliked: current.disliked }]));
     }
   };
 
@@ -434,13 +291,12 @@ export default function Home() {
                   Browse <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> internships{stats.applied > 0 && <> • <Link href="/applied" className="font-medium text-emerald-700 dark:text-emerald-300 hover:underline underline-offset-4">{stats.applied} applied</Link></>} . <span style={{ opacity: 1 - p * 0.8, display: p > 0.7 ? "none" : "inline" }}>Backend paginated (Postgres).</span> {pagination.total > 0 && <span className="ml-1 text-zinc-500 dark:text-zinc-500" style={{ opacity: 1 - p, display: p > 0.5 ? "none" : "inline" }}>Page {pagination.page}/{pagination.totalPages} • {LIMIT}/page</span>}</p>
               </div>
               <div className="flex items-center gap-2 text-xs">
-                <button
-                  onClick={() => setShowKeywordsManager(true)}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 dark:bg-white font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100"
-                  style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}
-                >
-                  ★ Top Picks • {keywords.length} keywords
-                </button>
+                <Link href="/applied" className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300" style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}>
+                  <span className="text-sm">✓</span>{stats.applied} applied
+                </Link>
+                <Link href="/disliked" className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 font-semibold text-rose-700 transition-colors hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300" style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}>
+                  <span className="text-sm">♡</span>{stats.disliked} disliked
+                </Link>
                 <span
                   className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400"
                   style={{ padding: `${4 + (1 - p) * 4}px ${8 + (1 - p) * 4}px`, fontSize: `${11 + (1 - p) * 1}px` }}
@@ -470,7 +326,7 @@ export default function Home() {
                 {(query || ageFilter !== "all" || appliedFilter !== "all" || sort !== "newest" || hasActiveTagFilters) && <button onClick={handleClear} className="hidden sm:inline-flex items-center rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800" style={{ padding: `${8 + (1 - p) * 2}px ${12 + (1 - p) * 2}px`, fontSize: "14px" }}>Clear</button>}
               </div>
             </div>
-            {/* Tag filters — backend-filtered, shared for main list + Top Picks — scroll-linked */}
+            {/* Tag filters — backend-filtered and scroll-linked */}
             <div className="flex flex-wrap items-center" style={{ gap: `${8 - p * 2}px` }}>
               <span className="font-medium text-zinc-700 dark:text-zinc-300" style={{ fontSize: `${12 - p * 1}px` }}>Filter tags:</span>
               {TAG_DEFS.map((def) => {
@@ -523,74 +379,6 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-8">
-        {/* Top Picks */}
-        <section className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20 p-5 sm:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center gap-2"><span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white text-xs">★</span> Top Picks <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">preview</span><Link href="/picks" className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-300">Open full page →</Link></h2>
-              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">Matches <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">{keywords.length ? keywords.map((k) => k.keyword).join(", ") : "—"}</span> in company / role / location (case-insensitive). <span className="hidden sm:inline">Sorted newest first.</span></p>
-            </div>
-            <button onClick={() => setShowKeywordsManager(true)} className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 dark:bg-white px-4 py-2 text-xs font-medium text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100">Manage keywords — {keywords.length}</button>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {keywords.length ? keywords.map((k) => <span key={k.id} className="inline-flex items-center rounded-full bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-800 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">{k.keyword}</span>) : <span className="text-xs text-zinc-500 dark:text-zinc-400">No keywords yet — add one to see top picks.</span>}
-          </div>
-          <label className="mt-3 inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-            <input
-              type="checkbox"
-              checked={excludeAppliedTopPicks}
-              onChange={(e) => setExcludeAppliedTopPicks(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-amber-300 text-amber-500 focus:ring-amber-500"
-            />
-            Hide applied internships from Top Picks
-          </label>
-          {/* Tag filters inside Top Picks — same state as main list, backend-filtered */}
-          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-800 bg-white/70 dark:bg-zinc-900/50 px-3 py-2.5">
-            <span className="text-xs font-medium text-amber-900 dark:text-amber-100">Filter Top Picks:</span>
-            {TAG_DEFS.map((def) => {
-              const v = tagFilters[def.key];
-              const isOnly = v === "only";
-              const isExclude = v === "exclude";
-              return (
-                <button
-                  key={def.key}
-                  onClick={() => cycleTagFilter(def.key)}
-                  title={`Top Picks filter: ${def.label} — click to cycle All → Hide → Only (now: ${v})`}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                    isOnly
-                      ? def.activeClasses
-                      : isExclude
-                        ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700 line-through"
-                        : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-amber-200 dark:border-zinc-700 hover:bg-amber-50 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  <span>{def.icon}</span>{def.label}
-                  <span className={`ml-0.5 rounded-full px-1 py-0.5 text-[10px] leading-none ${isOnly ? "bg-black/10 dark:bg-white/10" : isExclude ? "bg-zinc-200 dark:bg-zinc-700" : "bg-amber-100 dark:bg-zinc-800"}`}>{v === "all" ? "All" : v === "only" ? "Only" : "Hide"}</span>
-                </button>
-              );
-            })}
-            {hasActiveTagFilters && <span className="text-[11px] text-amber-700 dark:text-amber-300">{activeTagCount} filter{activeTagCount !== 1 ? "s" : ""} active • affects both lists</span>}
-          </div>
-          <div className="mt-5">
-            {isTopPicksLoading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"><div className="h-40 rounded-xl bg-white/60 dark:bg-zinc-900/40 animate-pulse" /><div className="h-40 rounded-xl bg-white/60 dark:bg-zinc-900/40 animate-pulse" /><div className="h-40 rounded-xl bg-white/60 dark:bg-zinc-900/40 animate-pulse" /></div>
-            ) : topPicks.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-amber-200 dark:border-amber-800 bg-white dark:bg-zinc-900 p-6 text-center">
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{keywords.length ? `No matches for current keywords (${topPicksMeta?.totalMatching ?? 0} total)` : "Add keywords to populate Top Picks"}</p>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{keywords.length ? "Try broader keywords like \"Google\" or \"Engineer\" / \"Remote\"" : "Example: Goldman, NVIDIA, Backend, London"}</p>
-                <button onClick={() => setShowKeywordsManager(true)} className="mt-3 rounded-full bg-amber-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-600">Add keyword</button>
-              </div>
-            ) : (
-              <>
-                <div className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">Showing {topPicks.length} of {topPicksMeta?.totalMatching ?? topPicks.length} most recent • limit {TOP_PICKS_LIMIT}</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {topPicks.map((job) => <InternshipCard key={`top-${job.id}`} job={job} onToggle={toggleApplied} onDislike={toggleDisliked} onTagClick={handleCardTagClick} />)}
-                </div>
-              </>
-            )}
-          </div>
-        </section>
-
         {isLoading && internships.length === 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="animate-pulse rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 h-48" />)}</div>
         ) : internships.length === 0 ? (
@@ -614,50 +402,6 @@ export default function Home() {
           </>
         )}
       </main>
-
-      {showKeywordsManager && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowKeywordsManager(false)} aria-label="Close" />
-          <div className="relative w-full max-w-lg rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-5 py-4">
-              <div><h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Top Picks Keywords</h3><p className="text-xs text-zinc-500 dark:text-zinc-400">Global — saved in Postgres <code className="font-mono">top_pick_keywords</code>. Matches company / role / location (case-insensitive).</p></div>
-              <button onClick={() => setShowKeywordsManager(false)} className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-600"><svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg></button>
-            </div>
-            <div className="p-5 space-y-4 overflow-auto">
-              <div className="flex gap-2">
-                <input value={newKeyword} onChange={(e) => setNewKeyword(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleAddKeyword(); }} placeholder="Add keyword e.g. Google, Backend, London" className="flex-1 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10" />
-                <button onClick={handleAddKeyword} disabled={keywordBusy || !newKeyword.trim()} className="rounded-xl bg-zinc-900 dark:bg-white px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 disabled:opacity-50 hover:bg-zinc-800 dark:hover:bg-zinc-100">Add</button>
-              </div>
-              {keywordError && <p className="text-xs text-red-600 dark:text-red-400">{keywordError}</p>}
-              <div className="space-y-2">
-                {keywords.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">No keywords yet. Add one above — top picks will show most recent matching internships.</p>
-                ) : (
-                  keywords.map((k) => (
-                    <div key={k.id} className="flex items-center gap-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2">
-                      {editingId === k.id ? (
-                        <>
-                          <input value={editingValue} onChange={(e) => setEditingValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleEditKeyword(k.id); if (e.key === "Escape") { setEditingId(null); setKeywordError(null); } }} className="flex-1 rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 py-1.5 text-sm" autoFocus />
-                          <button onClick={() => handleEditKeyword(k.id)} disabled={keywordBusy} className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Save</button>
-                          <button onClick={() => { setEditingId(null); setKeywordError(null); }} className="rounded-full border border-zinc-300 dark:border-zinc-600 px-3 py-1.5 text-xs">Cancel</button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="flex-1 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{k.keyword}</span>
-                          <button onClick={() => { setEditingId(k.id); setEditingValue(k.keyword); setKeywordError(null); }} className="rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800">Edit</button>
-                          <button onClick={() => handleDeleteKeyword(k.id)} disabled={keywordBusy} className="rounded-full bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-300 hover:bg-red-100 disabled:opacity-50">Remove</button>
-                        </>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Changes save to Postgres immediately and reorder Top Picks by most recent (age 0d first). Deleting a keyword instantly removes it from the query.</p>
-            </div>
-            <div className="flex items-center justify-between border-t border-zinc-200 dark:border-zinc-800 px-5 py-3 text-xs text-zinc-500 dark:text-zinc-400"><span>{keywords.length} keyword{keywords.length !== 1 ? "s" : ""} • Top picks limit {TOP_PICKS_LIMIT}</span><button onClick={() => setShowKeywordsManager(false)} className="rounded-full bg-zinc-900 dark:bg-white px-4 py-1.5 text-xs font-medium text-white dark:text-zinc-900">Done</button></div>
-          </div>
-        </div>
-      )}
 
       <footer className="border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
