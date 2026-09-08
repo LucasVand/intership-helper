@@ -128,12 +128,15 @@ export async function GET(req: Request) {
 
     const appliedWhere = baseWhere ? and(baseWhere, eq(internships.applied, true)) : eq(internships.applied, true);
     const notAppliedWhere = baseWhere ? and(baseWhere, eq(internships.applied, false)) : eq(internships.applied, false);
-    const [appliedRes, notAppliedRes] = await Promise.all([
+    const dislikedWhere = eq(internships.disliked, true);
+    const [appliedRes, notAppliedRes, dislikedRes] = await Promise.all([
       db.select({ value: count() }).from(internships).where(appliedWhere),
       db.select({ value: count() }).from(internships).where(notAppliedWhere),
+      db.select({ value: count() }).from(internships).where(dislikedWhere),
     ]);
     const appliedCount = Number(appliedRes[0]?.value ?? 0);
     const notAppliedCount = Number(notAppliedRes[0]?.value ?? 0);
+    const dislikedCount = Number(dislikedRes[0]?.value ?? 0);
 
     const ages = ["0d", "1d", "2d", "3d", "7d", "14d", "30d"];
 
@@ -170,7 +173,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data,
       pagination: { page, limit, total, totalPages, hasMore },
-      stats: { total, applied: appliedCount, notApplied: notAppliedCount },
+      stats: { total, applied: appliedCount, notApplied: notAppliedCount, disliked: dislikedCount },
       facets: { ages },
       meta: { source: "db" as const, sort, filters: { q, age: ageFilter, applied: appliedFilter, ...tagFilters } },
     });
