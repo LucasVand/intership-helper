@@ -9,6 +9,10 @@ RUN npm ci
 
 COPY db ./db
 COPY scripts/sync-internships.ts ./scripts/sync-internships.ts
+COPY scripts/prune-sync-history.ts ./scripts/prune-sync-history.ts
 COPY scripts/sources ./scripts/sources
+RUN mkdir -p /app/logs
 
-CMD ["npm", "run", "db:sync"]
+# Always write a persistent JSON copy alongside stdout (mounted to ./logs on host)
+# Writes logs/sync-latest.json plus timestamped history, then prunes to 20 most recent
+CMD ["sh", "-c", "npm run db:sync -- --log-file=logs/sync-latest.json && cp logs/sync-latest.json logs/sync-$(date -u +%Y-%m-%dT%H-%M-%SZ).json 2>/dev/null || true; npx tsx scripts/prune-sync-history.ts 2>&1 || true"]

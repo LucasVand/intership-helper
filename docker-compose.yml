@@ -56,6 +56,12 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-intership-helper}
+      SYNC_LOG_FILE: ${SYNC_LOG_FILE:-logs/sync-latest.json}
+    volumes:
+      - ./logs:/app/logs
+    # persistent JSON copy alongside stdout; --log-file writes logs/sync-latest.json,
+    # then keep timestamped history and prune to 20 most recent (see scripts/prune-sync-history.ts)
+    command: sh -c "npm run db:sync -- --log-file=logs/sync-latest.json && cp logs/sync-latest.json logs/sync-$(date -u +%Y-%m-%dT%H-%M-%SZ).json 2>/dev/null || true; npx tsx scripts/prune-sync-history.ts 2>&1 || true"
     restart: "no"
 
 volumes:

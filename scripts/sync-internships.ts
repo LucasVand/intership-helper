@@ -2,6 +2,9 @@ import * as dotenv from "dotenv";
 dotenv.config({ path: ".env" });
 dotenv.config({ path: ".env.local" });
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
@@ -62,10 +65,108 @@ async function recordSyncRun(
   }
 }
 
+function getLogFilePath(args: string[]): string | null {
+  const flag = args.find((a) => a.startsWith("--log-file"));
+  if (!flag) return process.env.SYNC_LOG_FILE ?? null;
+  if (flag === "--log-file") return `logs/sync-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  const eqIdx = flag.indexOf("=");
+  if (eqIdx !== -1) return flag.slice(eqIdx + 1) || null;
+  return process.env.SYNC_LOG_FILE ?? `logs/sync-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+}
+
+function formatFlag(v: boolean | undefined): string {
+  return v ? "true" : "false";
+}
+
+function flagLabel(key: string, before: boolean, after: boolean): string {
+  const emoji: Record<string, string> = {
+    noSponsorship: "🛂",
+    requiresCitizenship: "🇺🇸",
+    isClosed: "🔒",
+    isFaang: "🔥",
+    requiresAdvancedDegree: "🎓",
+  };
+  return `${key}${emoji[key] ? ` ${emoji[key]}` : ""}: ${formatFlag(before)}→${formatFlag(after)}`;
+}
+
+function buildLogPayload(
+  newEntries: ScrapedInternship[],
+  toUpdate: Array<{ id: number; flags: ScrapedInternship; cleanCompany: string; cleanRole: string; source: string; reasons: string[]; existing: any }>,
+  meta: { scrapedCount: number; existingCount: number; totalAfter: number; durationMs: number; status: string; dryRun: boolean }
+) {
+  return {
+    generatedAt: new Date().toISOString(),
+    meta,
+    inserted: newEntries.map((e, idx) => ({
+      idx: idx + 1,
+      source: e.source,
+      company: e.company,
+      role: e.role,
+      location: e.location,
+      applicationLink: e.applicationLink,
+      postedAt: e.postedAt ? e.postedAt.toISOString() : null,
+      flags: {
+        noSponsorship: Boolean(e.noSponsorship),
+        requiresCitizenship: Boolean(e.requiresCitizenship),
+        isClosed: Boolean(e.isClosed),
+        isFaang: Boolean(e.isFaang),
+        requiresAdvancedDegree: Boolean(e.requiresAdvancedDegree),
+      },
+      reason: "new applicationLink not in DB",
+    })),
+    updated: toUpdate.map((u, idx) => ({
+      idx: idx + 1,
+      id: u.id,
+      link: u.flags.applicationLink,
+      before: {
+        company: u.existing.company,
+        role: u.existing.role,
+        location: u.existing.location,
+        source: u.existing.source,
+        postedAt: u.existing.postedAt ? (u.existing.postedAt as Date).toISOString() : null,
+        flags: {
+          noSponsorship: u.existing.noSponsorship,
+          requiresCitizenship: u.existing.requiresCitizenship,
+          isClosed: u.existing.isClosed,
+          isFaang: u.existing.isFaang,
+          requiresAdvancedDegree: u.existing.requiresAdvancedDegree,
+        },
+      },
+      after: {
+        company: u.cleanCompany,
+        role: u.cleanRole,
+        location: u.flags.location,
+        source: u.source,
+        postedAt: u.flags.postedAt ? u.flags.postedAt.toISOString() : null,
+        flags: {
+          noSponsorship: Boolean(u.flags.noSponsorship),
+          requiresCitizenship: Boolean(u.flags.requiresCitizenship),
+          isClosed: Boolean(u.flags.isClosed),
+          isFaang: Boolean(u.flags.isFaang),
+          requiresAdvancedDegree: Boolean(u.flags.requiresAdvancedDegree),
+        },
+      },
+      reasons: u.reasons,
+    })),
+  };
+}
+
+function maybeWriteLogFile(logFilePath: string | null, payload: unknown) {
+  if (!logFilePath) return;
+  try {
+    const dir = path.dirname(logFilePath);
+    if (dir && dir !== ".") fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(logFilePath, JSON.stringify(payload, null, 2), "utf8");
+    console.log(`\nDetailed log written to ${logFilePath} (${(JSON.stringify(payload).length / 1024).toFixed(1)} KB)`);
+  } catch (e: any) {
+    console.warn(`  warning: could not write log file ${logFilePath}: ${e?.message ?? e}`);
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
-  const verbose = args.includes("--verbose") || args.includes("-v");
+  const logFilePath = getLogFilePath(args);
   const startMs = Date.now();
 
   if (args.includes("--help") || args.includes("-h")) {
@@ -73,21 +174,28 @@ async function main() {
 Usage: tsx scripts/sync-internships.ts [options]
 
 Options:
-  --dry-run      Fetch and report new entries without inserting
-  --verbose      Extra logging
-  --help         Show this help
+  --dry-run              Fetch and report new entries without inserting
+  --log-file[=PATH]      Also write detailed JSON to file (default: logs/sync-<timestamp>.json when flag given without path)
+  --help, -h             Show this help
 
 Env:
   DATABASE_URL   Postgres connection (preferred)
   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
-                 Used to build the same connection URL as Docker Compose
+                  Used to build the same connection URL as Docker Compose
   POSTGRES_HOST  Database hostname (default: db)
   POSTGRES_PORT  Database port (default: 5432)
+  SYNC_LOG_FILE  Alternative way to set --log-file path
 
 Examples:
   npx tsx scripts/sync-internships.ts --dry-run
-  npm run db:sync
+  npx tsx scripts/sync-internships.ts --log-file
+  npx tsx scripts/sync-internships.ts --log-file=./logs/latest.json
+  SYNC_LOG_FILE=./logs/sync.json npm run db:sync
   npm run db:sync:dry
+
+Logs:
+  stdout: always. In Docker: docker compose logs sync  or  docker logs intership-helper-sync
+  file: only when --log-file / SYNC_LOG_FILE is set. Mount ./logs:/app/logs in compose to persist.
 `);
     process.exit(0);
   }
@@ -167,7 +275,6 @@ Examples:
   for (const r of existing) {
     existingMap.set(r.applicationLink, r);
   }
-  if (verbose) console.log(`  built ${existingMap.size} existing keys`);
 
   const seenScrapedLinks = new Set<string>();
   const newEntries = scraped.filter((r) => {
@@ -178,7 +285,16 @@ Examples:
   });
 
   // Also detect existing rows where legend flags or cleaned text have changed (backfill)
-  const toUpdate: Array<{ id: number; flags: ScrapedInternship; cleanCompany: string; cleanRole: string; source: string }> = [];
+  type ToUpdateEntry = {
+    id: number;
+    flags: ScrapedInternship;
+    cleanCompany: string;
+    cleanRole: string;
+    source: string;
+    reasons: string[];
+    existing: typeof existing[number];
+  };
+  const toUpdate: ToUpdateEntry[] = [];
   for (const s of scraped) {
     const key = makeKey(s);
     if (!key) continue;
@@ -191,37 +307,80 @@ Examples:
       isFaang: Boolean(s.isFaang),
       requiresAdvancedDegree: Boolean(s.requiresAdvancedDegree),
     };
-    const needsFlagUpdate =
-      ex.noSponsorship !== sFlags.noSponsorship ||
-      ex.requiresCitizenship !== sFlags.requiresCitizenship ||
-      ex.isClosed !== sFlags.isClosed ||
-      ex.isFaang !== sFlags.isFaang ||
-      ex.requiresAdvancedDegree !== sFlags.requiresAdvancedDegree;
-    const needsTextUpdate = ex.company !== s.company || ex.role !== s.role;
+    const reasons: string[] = [];
+
+    if (ex.noSponsorship !== sFlags.noSponsorship) reasons.push(flagLabel("noSponsorship", ex.noSponsorship, sFlags.noSponsorship));
+    if (ex.requiresCitizenship !== sFlags.requiresCitizenship) reasons.push(flagLabel("requiresCitizenship", ex.requiresCitizenship, sFlags.requiresCitizenship));
+    if (ex.isClosed !== sFlags.isClosed) reasons.push(flagLabel("isClosed", ex.isClosed, sFlags.isClosed));
+    if (ex.isFaang !== sFlags.isFaang) reasons.push(flagLabel("isFaang", ex.isFaang, sFlags.isFaang));
+    if (ex.requiresAdvancedDegree !== sFlags.requiresAdvancedDegree) reasons.push(flagLabel("requiresAdvancedDegree", ex.requiresAdvancedDegree, sFlags.requiresAdvancedDegree));
+
+    if (ex.company !== s.company) reasons.push(`company: "${ex.company}" → "${s.company}"`);
+    if (ex.role !== s.role) reasons.push(`role: "${ex.role}" → "${s.role}"`);
+
     const mergedSource = ex.source === s.source || ex.source === "multiple" ? ex.source : "multiple";
-    const needsSourceUpdate = ex.source !== mergedSource;
-    const needsPostedAtUpdate =
-      Boolean(s.postedAt) &&
-      (!ex.postedAt || Math.abs(ex.postedAt.getTime() - s.postedAt!.getTime()) > 12 * 60 * 60 * 1000);
-    if (needsFlagUpdate || needsTextUpdate || needsPostedAtUpdate || needsSourceUpdate) {
-      toUpdate.push({ id: ex.id, flags: s, cleanCompany: s.company, cleanRole: s.role, source: mergedSource });
+    if (ex.source !== mergedSource) reasons.push(`source: ${ex.source} → ${mergedSource}`);
+
+    if (s.postedAt) {
+      if (!ex.postedAt) reasons.push(`postedAt: null → ${s.postedAt.toISOString()} (now dated)`);
+      else {
+        const diffMs = Math.abs(ex.postedAt.getTime() - s.postedAt.getTime());
+        if (diffMs > 12 * 60 * 60 * 1000) {
+          const diffH = (diffMs / (60 * 60 * 1000)).toFixed(1);
+          reasons.push(`postedAt: ${ex.postedAt.toISOString()} → ${s.postedAt.toISOString()} (Δ${diffH}h)`);
+        }
+      }
+    }
+
+    if (reasons.length > 0) {
+      toUpdate.push({ id: ex.id, flags: s, cleanCompany: s.company, cleanRole: s.role, source: mergedSource, reasons, existing: ex });
     }
   }
 
   console.log(`New entries to insert: ${newEntries.length} (out of ${scraped.length} scraped)`);
-  console.log(`Existing rows needing flag update: ${toUpdate.length}`);
-  if (verbose && newEntries.length) {
-    newEntries.slice(0, 10).forEach((e) => console.log(`  + [${e.source}] ${e.company} — ${e.role} — ${e.location}`));
-    if (newEntries.length > 10) console.log(`  ... and ${newEntries.length - 10} more`);
+  console.log(`Existing rows needing update: ${toUpdate.length}`);
+
+  // Always log every insert with why/what — stdout is the primary channel (docker logs / compose logs)
+  if (newEntries.length > 0) {
+    console.log(`\n=== INSERTS (${newEntries.length}) — new applicationLink not in DB ===`);
+    for (let i = 0; i < newEntries.length; i++) {
+      const e = newEntries[i];
+      const flagStr = `noSponsorship=${formatFlag(e.noSponsorship)} requiresCitizenship=${formatFlag(e.requiresCitizenship)} isClosed=${formatFlag(e.isClosed)} isFaang=${formatFlag(e.isFaang)} requiresAdvancedDegree=${formatFlag(e.requiresAdvancedDegree)}`;
+      const postedAtStr = e.postedAt ? e.postedAt.toISOString() : "null";
+      console.log(`  + [${i + 1}/${newEntries.length}] [${e.source}] "${e.company}" — "${e.role}" — ${e.location} | link=${e.applicationLink} | ${flagStr} | postedAt=${postedAtStr} | reason: new link`);
+    }
+  } else {
+    console.log(`No new inserts — all scraped links already in DB`);
   }
-  if (verbose && toUpdate.length) {
-    toUpdate.slice(0, 10).forEach((u) => console.log(`  ~ update id=${u.id} ${u.flags.company} — ${u.flags.role}`));
-    if (toUpdate.length > 10) console.log(`  ... and ${toUpdate.length - 10} more updates`);
+
+  if (toUpdate.length > 0) {
+    console.log(`\n=== UPDATES (${toUpdate.length}) — existing link with changed fields ===`);
+    for (let i = 0; i < toUpdate.length; i++) {
+      const u = toUpdate[i];
+      const flagStr = `noSponsorship=${formatFlag(u.flags.noSponsorship)} requiresCitizenship=${formatFlag(u.flags.requiresCitizenship)} isClosed=${formatFlag(u.flags.isClosed)} isFaang=${formatFlag(u.flags.isFaang)} requiresAdvancedDegree=${formatFlag(u.flags.requiresAdvancedDegree)}`;
+      const postedAtStr = u.flags.postedAt ? u.flags.postedAt.toISOString() : "null";
+      const locationNote = u.existing.location !== u.flags.location ? ` | location drift: "${u.existing.location}" → "${u.flags.location}" (not triggering update)` : "";
+      console.log(`  ~ [${i + 1}/${toUpdate.length}] id=${u.id} [${u.existing.source}→${u.source}] "${u.existing.company}" → "${u.cleanCompany}" | "${u.existing.role}" → "${u.cleanRole}" | link=${u.flags.applicationLink}${locationNote}`);
+      console.log(`      reasons: ${u.reasons.join("; ")} | flags→ ${flagStr} | postedAt→ ${postedAtStr}`);
+    }
+  } else {
+    console.log(`No updates — existing rows match scraped flags/text/postedAt/source`);
   }
 
   if (newEntries.length === 0 && toUpdate.length === 0) {
     console.log("DB is already up to date — nothing to do");
     const durationMs = Date.now() - startMs;
+    if (logFilePath) {
+      const payload = buildLogPayload(newEntries, toUpdate, {
+        scrapedCount: scraped.length,
+        existingCount: existing.length,
+        totalAfter: existing.length,
+        durationMs,
+        status: "success",
+        dryRun: false,
+      });
+      maybeWriteLogFile(logFilePath, payload);
+    }
     await recordSyncRun(pool, db, {
       scrapedCount: scraped.length,
       existingCount: existing.length,
@@ -240,6 +399,19 @@ Examples:
   if (dryRun) {
     console.log("Dry run — not inserting/updating. Remove --dry-run to apply.");
     const durationMs = Date.now() - startMs;
+    if (logFilePath) {
+      const payload = buildLogPayload(newEntries, toUpdate, {
+        scrapedCount: scraped.length,
+        existingCount: existing.length,
+        totalAfter: existing.length,
+        durationMs,
+        status: "dry_run",
+        dryRun: true,
+      });
+      maybeWriteLogFile(logFilePath, payload);
+    } else if (newEntries.length + toUpdate.length > 0) {
+      console.log(`\nTip: re-run with --log-file to also save these ${newEntries.length + toUpdate.length} rows to JSON (e.g. --log-file=logs/sync.json or SYNC_LOG_FILE=logs/sync.json)`);
+    }
     await recordSyncRun(pool, db, {
       scrapedCount: scraped.length,
       existingCount: existing.length,
@@ -296,11 +468,24 @@ Examples:
       })
       .where(eq(internships.id, u.id));
     updated++;
-    if (verbose || updated % 100 === 0) console.log(`  updated ${updated}/${toUpdate.length}`);
+    if (updated % 100 === 0 || updated === toUpdate.length) console.log(`  updated ${updated}/${toUpdate.length}`);
   }
 
   const durationMs = Date.now() - startMs;
   console.log(`Done — inserted ${inserted} new, updated ${updated} existing. DB now has ${existing.length + inserted} rows`);
+  if (logFilePath) {
+    const payload = buildLogPayload(newEntries, toUpdate, {
+      scrapedCount: scraped.length,
+      existingCount: existing.length,
+      totalAfter: existing.length + inserted,
+      durationMs,
+      status: "success",
+      dryRun: false,
+    });
+    maybeWriteLogFile(logFilePath, payload);
+  } else if (inserted + updated > 0) {
+    console.log(`Tip: re-run with --log-file to save per-row diffs to JSON (e.g. --log-file=logs/sync.json)`);
+  }
 
   await recordSyncRun(pool, db, {
     scrapedCount: scraped.length,
