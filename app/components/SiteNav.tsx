@@ -38,10 +38,7 @@ export function SiteNav() {
   return (
     <nav className="border-b border-zinc-200 bg-white/90 shadow-sm backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
-        <Link href="/" className="mr-1 inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-xs text-white shadow-sm">IH</span>
-          Internship Helper
-        </Link>
+        <Link href="/" className="mr-1 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Internship Helper</Link>
         <div className="flex flex-1 flex-wrap items-center gap-1">
           {items.map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
