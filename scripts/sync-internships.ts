@@ -7,11 +7,12 @@ import * as path from "node:path";
 
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { internships, syncRuns } from "../db/schema";
 import { canadianTechSource } from "./sources/canadian-tech";
 import { simplifySource } from "./sources/simplify";
 import type { InternshipSourceAdapter, ScrapedInternship } from "./sources/types";
+import { normalizeApplicationLink } from "./normalize-url";
 
 const SOURCES: InternshipSourceAdapter[] = [simplifySource, canadianTechSource];
 
@@ -27,7 +28,7 @@ function getDatabaseUrl(): string | undefined {
 }
 
 function makeKey(r: ScrapedInternship | { applicationLink: string }): string {
-  return r.applicationLink.trim();
+  return normalizeApplicationLink(r.applicationLink);
 }
 
 async function recordSyncRun(
@@ -209,7 +210,10 @@ Logs:
       console.log(`  ${source.source}: found ${rows.length} rows`);
       return rows;
     }));
-    scraped = batches.flat();
+    scraped = batches.flat().map((row) => ({
+      ...row,
+      applicationLink: normalizeApplicationLink(row.applicationLink),
+    }));
   } catch (e: any) {
     console.error("Failed to fetch/parse internship source:", e?.message ?? e);
     // if DB available, record failure
@@ -272,9 +276,48 @@ Logs:
   }
 
   const existingMap = new Map<string, typeof existing[number]>();
+  const duplicateRows: Array<{ duplicate: typeof existing[number]; survivor: typeof existing[number] }> = [];
   for (const r of existing) {
-    existingMap.set(r.applicationLink, r);
+    const key = makeKey(r);
+    const survivor = existingMap.get(key);
+    if (survivor) duplicateRows.push({ duplicate: r, survivor });
+    else existingMap.set(key, r);
   }
+
+  if (duplicateRows.length > 0) {
+    console.log(`Found ${duplicateRows.length} existing duplicate URL variant${duplicateRows.length === 1 ? "" : "s"} to consolidate`);
+    for (const { duplicate, survivor } of duplicateRows) {
+      survivor.applied ||= duplicate.applied;
+      survivor.disliked ||= duplicate.disliked;
+      survivor.noSponsorship ||= duplicate.noSponsorship;
+      survivor.requiresCitizenship ||= duplicate.requiresCitizenship;
+      survivor.isClosed ||= duplicate.isClosed;
+      survivor.isFaang ||= duplicate.isFaang;
+      survivor.requiresAdvancedDegree ||= duplicate.requiresAdvancedDegree;
+      if (survivor.source !== duplicate.source) survivor.source = "multiple";
+    }
+
+    if (!dryRun) {
+      await db.delete(internships).where(inArray(internships.id, duplicateRows.map(({ duplicate }) => duplicate.id)));
+      for (const { survivor } of duplicateRows) {
+        await db
+          .update(internships)
+          .set({
+            applicationLink: makeKey(survivor),
+            applied: survivor.applied,
+            disliked: survivor.disliked,
+            noSponsorship: survivor.noSponsorship,
+            requiresCitizenship: survivor.requiresCitizenship,
+            isClosed: survivor.isClosed,
+            isFaang: survivor.isFaang,
+            requiresAdvancedDegree: survivor.requiresAdvancedDegree,
+            source: survivor.source,
+          })
+          .where(eq(internships.id, survivor.id));
+      }
+    }
+  }
+  const existingAfterDedup = existing.length - duplicateRows.length;
 
   const seenScrapedLinks = new Set<string>();
   const newEntries = scraped.filter((r) => {
@@ -309,6 +352,7 @@ Logs:
     };
     const reasons: string[] = [];
 
+    if (ex.applicationLink !== key) reasons.push(`applicationLink: "${ex.applicationLink}" → "${key}"`);
     if (ex.noSponsorship !== sFlags.noSponsorship) reasons.push(flagLabel("noSponsorship", ex.noSponsorship, sFlags.noSponsorship));
     if (ex.requiresCitizenship !== sFlags.requiresCitizenship) reasons.push(flagLabel("requiresCitizenship", ex.requiresCitizenship, sFlags.requiresCitizenship));
     if (ex.isClosed !== sFlags.isClosed) reasons.push(flagLabel("isClosed", ex.isClosed, sFlags.isClosed));
@@ -367,14 +411,14 @@ Logs:
     console.log(`No updates — existing rows match scraped flags/text/postedAt/source`);
   }
 
-  if (newEntries.length === 0 && toUpdate.length === 0) {
+  if (newEntries.length === 0 && toUpdate.length === 0 && duplicateRows.length === 0) {
     console.log("DB is already up to date — nothing to do");
     const durationMs = Date.now() - startMs;
     if (logFilePath) {
       const payload = buildLogPayload(newEntries, toUpdate, {
         scrapedCount: scraped.length,
         existingCount: existing.length,
-        totalAfter: existing.length,
+        totalAfter: existingAfterDedup,
         durationMs,
         status: "success",
         dryRun: false,
@@ -386,7 +430,7 @@ Logs:
       existingCount: existing.length,
       insertedCount: 0,
       updatedCount: 0,
-      totalAfter: existing.length,
+      totalAfter: existingAfterDedup,
       durationMs,
       status: "success",
       error: null,
@@ -403,7 +447,7 @@ Logs:
       const payload = buildLogPayload(newEntries, toUpdate, {
         scrapedCount: scraped.length,
         existingCount: existing.length,
-        totalAfter: existing.length,
+        totalAfter: existingAfterDedup,
         durationMs,
         status: "dry_run",
         dryRun: true,
@@ -417,7 +461,7 @@ Logs:
       existingCount: existing.length,
       insertedCount: newEntries.length,
       updatedCount: toUpdate.length,
-      totalAfter: existing.length,
+      totalAfter: existingAfterDedup,
       durationMs,
       status: "dry_run",
       error: null,
@@ -465,6 +509,7 @@ Logs:
         requiresAdvancedDegree: Boolean(u.flags.requiresAdvancedDegree),
         source: u.source,
         postedAt: u.flags.postedAt ?? null,
+        applicationLink: makeKey(u.flags),
       })
       .where(eq(internships.id, u.id));
     updated++;
@@ -472,12 +517,12 @@ Logs:
   }
 
   const durationMs = Date.now() - startMs;
-  console.log(`Done — inserted ${inserted} new, updated ${updated} existing. DB now has ${existing.length + inserted} rows`);
+  console.log(`Done — inserted ${inserted} new, updated ${updated} existing. DB now has ${existingAfterDedup + inserted} rows`);
   if (logFilePath) {
     const payload = buildLogPayload(newEntries, toUpdate, {
       scrapedCount: scraped.length,
       existingCount: existing.length,
-      totalAfter: existing.length + inserted,
+      totalAfter: existingAfterDedup + inserted,
       durationMs,
       status: "success",
       dryRun: false,
@@ -492,7 +537,7 @@ Logs:
     existingCount: existing.length,
     insertedCount: inserted,
     updatedCount: updated,
-    totalAfter: existing.length + inserted,
+    totalAfter: existingAfterDedup + inserted,
     durationMs,
     status: "success",
     error: null,
