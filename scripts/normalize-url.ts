@@ -7,6 +7,12 @@ export function normalizeApplicationLink(applicationLink: string): string {
   const trimmed = applicationLink.trim();
   try {
     const url = new URL(trimmed);
+    url.protocol = url.protocol.toLowerCase();
+    url.hostname = url.hostname.toLowerCase();
+    if ((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")) {
+      url.port = "";
+    }
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
     const params = [...url.searchParams.entries()]
       .filter(([name]) => !TRACKING_PARAMETER.test(name))
       .sort(([a], [b]) => a.localeCompare(b));
