@@ -1,4 +1,7 @@
-const TRACKING_PARAMETER = /^(utm_|ref$|referrer$|source$|campaign$|medium$|term$|content$|fbclid$|gclid$)/i;
+// Only remove parameters whose names are unambiguously tracking metadata.
+// Parameters such as `id`, `job`, `ref`, and `source` may be required by a
+// job board, so unknown and ambiguous parameters are intentionally preserved.
+const TRACKING_PARAMETER = /^(utm_[^=]*|fbclid|gclid|dclid|msclkid|igshid|yclid|mc_cid|mc_eid|_ga|_gl)$/i;
 
 export function normalizeApplicationLink(applicationLink: string): string {
   const trimmed = applicationLink.trim();
