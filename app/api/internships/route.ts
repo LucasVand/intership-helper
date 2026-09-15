@@ -219,3 +219,63 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Failed to update" }, { status: 500 });
   }
 }
+
+export async function POST(req: Request) {
+  if (!db) {
+    return NextResponse.json({ error: "Database not configured" }, { status: 503 });
+  }
+
+  try {
+    const body = await req.json();
+    const company = typeof body.company === "string" ? body.company.trim() : "";
+    const role = typeof body.role === "string" ? body.role.trim() : "";
+    const location = typeof body.location === "string" ? body.location.trim() : "";
+    const applicationLink = typeof body.applicationLink === "string" ? body.applicationLink.trim() : "";
+
+    if (!company || !role || !location || !applicationLink) {
+      return NextResponse.json({ error: "Company, role, location, and application link are required" }, { status: 400 });
+    }
+
+    try {
+      const parsedLink = new URL(applicationLink);
+      if (parsedLink.protocol !== "http:" && parsedLink.protocol !== "https:") {
+        return NextResponse.json({ error: "Application link must use http or https" }, { status: 400 });
+      }
+    } catch {
+      return NextResponse.json({ error: "Application link must be a valid URL" }, { status: 400 });
+    }
+
+    const [created] = await db
+      .insert(internships)
+      .values({
+        company,
+        role,
+        location,
+        applicationLink,
+        source: "manual",
+        postedAt: new Date(),
+        applied: true,
+      })
+      .returning();
+
+    return NextResponse.json({
+      id: created.id,
+      company: created.company,
+      role: created.role,
+      location: created.location,
+      application_link: created.applicationLink,
+      source: created.source,
+      age: "0m",
+      posted_at: created.postedAt?.toISOString(),
+      applied: created.applied,
+      disliked: created.disliked,
+    }, { status: 201 });
+  } catch (e: unknown) {
+    console.error("POST /api/internships failed:", e);
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.includes("unique") || message.includes("duplicate")) {
+      return NextResponse.json({ error: "An internship with this application link already exists" }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Failed to create internship" }, { status: 500 });
+  }
+}
