@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { InternshipCard, type Internship } from "../components/InternshipCard";
 import { SiteNav } from "../components/SiteNav";
@@ -21,6 +21,10 @@ export default function AppliedPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [form, setForm] = useState({ company: "", role: "", location: "", applicationLink: "" });
 
   const fetchApplied = useCallback(async (page: number, append: boolean) => {
     const params = new URLSearchParams();
@@ -57,6 +61,28 @@ export default function AppliedPage() {
   const handleLoadMore = () => {
     if (!pagination.hasMore || isLoadingMore) return;
     fetchApplied(pagination.page + 1, true);
+  };
+
+  const handleAdd = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsAdding(true);
+    setFormError(null);
+    try {
+      const res = await fetch("/api/internships", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setForm({ company: "", role: "", location: "", applicationLink: "" });
+      setShowAddForm(false);
+      await fetchApplied(1, false);
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Failed to add internship");
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   const toggleApplied = async (id: number) => {
@@ -116,6 +142,12 @@ export default function AppliedPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs">
+                <button
+                  onClick={() => { setShowAddForm((value) => !value); setFormError(null); }}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 font-medium text-white transition-colors hover:bg-emerald-700"
+                >
+                  <span className="text-base leading-none">+</span> Add internship
+                </button>
                 <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-zinc-600 dark:text-zinc-400">
                   <span className={`h-2 w-2 rounded-full ${isLoading ? "bg-amber-500 animate-pulse" : "bg-emerald-500"}`} />
                   {pagination.total.toLocaleString()} applied
@@ -123,6 +155,39 @@ export default function AppliedPage() {
               </div>
             </div>
             {error && <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm text-red-800 dark:text-red-200">{error}</div>}
+            {showAddForm && (
+              <form onSubmit={handleAdd} className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-800 dark:bg-emerald-950/20">
+                <div className="mb-3">
+                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Add an applied internship</h2>
+                  <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">Add a role you applied to outside the listings.</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {([
+                    ["company", "Company", "e.g. Acme"],
+                    ["role", "Role", "e.g. Software Engineer Intern"],
+                    ["location", "Location", "e.g. Remote or Toronto"],
+                    ["applicationLink", "Application link", "https://..."],
+                  ] as const).map(([key, label, placeholder]) => (
+                    <label key={key} className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                      {label}
+                      <input
+                        required
+                        type={key === "applicationLink" ? "url" : "text"}
+                        value={form[key]}
+                        onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))}
+                        placeholder={placeholder}
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-normal text-zinc-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      />
+                    </label>
+                  ))}
+                </div>
+                {formError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{formError}</p>}
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" onClick={() => setShowAddForm(false)} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
+                  <button type="submit" disabled={isAdding} className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50">{isAdding ? "Adding…" : "Add internship"}</button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       </header>
