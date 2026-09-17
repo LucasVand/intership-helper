@@ -9,6 +9,7 @@ RUN npm ci
 
 COPY db ./db
 COPY scripts/sync-internships.ts ./scripts/sync-internships.ts
+COPY scripts/normalize-url.ts ./scripts/normalize-url.ts
 COPY scripts/prune-sync-history.ts ./scripts/prune-sync-history.ts
 COPY scripts/sources ./scripts/sources
 RUN mkdir -p /app/logs
