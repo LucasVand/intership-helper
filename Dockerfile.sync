@@ -8,10 +8,10 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY db ./db
-COPY scripts/sync-internships.ts ./scripts/sync-internships.ts
-COPY scripts/prune-sync-history.ts ./scripts/prune-sync-history.ts
-COPY scripts/sources ./scripts/sources
+COPY scripts ./scripts
 RUN mkdir -p /app/logs
+# Load the sync entrypoint and every local import without contacting the DB or sources.
+RUN npx tsx scripts/sync-internships.ts --help >/dev/null
 
 # Always write a persistent JSON copy alongside stdout (mounted to ./logs on host)
 # Writes logs/sync-latest.json plus timestamped history, then prunes to 20 most recent

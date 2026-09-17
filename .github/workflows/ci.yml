@@ -97,8 +97,17 @@ jobs:
           echo "✗ Postgres not ready after 30s"
           exit 1
 
+      - name: Verify sync entrypoint imports
+        run: npx tsx scripts/sync-internships.ts --help
+
       - name: Run migrations (ephemeral DB)
         run: npm run db:migrate
 
       - name: Dry-run sync (parse + dedup check)
         run: npm run db:sync:dry
+
+      - name: Build sync image
+        run: docker build --file Dockerfile.sync --tag intership-helper-sync:ci .
+
+      - name: Verify sync image entrypoint imports
+        run: docker run --rm intership-helper-sync:ci npx tsx scripts/sync-internships.ts --help
