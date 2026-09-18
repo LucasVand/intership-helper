@@ -38,6 +38,7 @@ export async function GET(req: Request) {
   const offset = (page - 1) * limit;
   const excludeApplied = searchParams.get("exclude_applied") !== "false";
   const includeDisliked = searchParams.get("include_disliked") === "true";
+  const sourceFilter = (searchParams.get("source") || "all").trim();
   const tagFilters = {
     is_faang: parseTagFilter(searchParams.get("is_faang")),
     is_closed: parseTagFilter(searchParams.get("is_closed")),
@@ -60,7 +61,7 @@ export async function GET(req: Request) {
       data: [],
       keywords,
       pagination: { page, limit, total: 0, totalPages: 1, hasMore: false },
-      meta: { source: "db" as const, limit, totalMatching: 0, excludeApplied, includeDisliked, filters: tagFilters },
+      meta: { source: "db" as const, limit, totalMatching: 0, excludeApplied, includeDisliked, filters: { source: sourceFilter, ...tagFilters } },
     });
   }
 
@@ -74,6 +75,7 @@ export async function GET(req: Request) {
     const tagConditions: any[] = [];
     if (!includeDisliked) tagConditions.push(eq(internships.disliked, false));
     if (excludeApplied) tagConditions.push(eq(internships.applied, false));
+    if (sourceFilter !== "all") tagConditions.push(eq(internships.source, sourceFilter));
     if (tagFilters.is_faang !== "all") tagConditions.push(eq(internships.isFaang, tagFilters.is_faang === "only"));
     if (tagFilters.is_closed !== "all") tagConditions.push(eq(internships.isClosed, tagFilters.is_closed === "only"));
     if (tagFilters.no_sponsorship !== "all") tagConditions.push(eq(internships.noSponsorship, tagFilters.no_sponsorship === "only"));
@@ -112,7 +114,7 @@ export async function GET(req: Request) {
       data,
       pagination: { page, limit, total: totalMatching, totalPages, hasMore: page < totalPages },
       keywords,
-      meta: { source: "db" as const, limit, totalMatching, excludeApplied, includeDisliked, filters: tagFilters },
+      meta: { source: "db" as const, limit, totalMatching, excludeApplied, includeDisliked, filters: { source: sourceFilter, ...tagFilters } },
     });
   } catch (e) {
     console.error("top-picks DB query failed:", e);

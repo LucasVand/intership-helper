@@ -21,6 +21,7 @@ export default function PicksPage() {
   const [picks, setPicks] = useState<Internship[]>([]);
   const [filters, setFilters] = useState<Record<TagKey, TagFilter>>({ is_faang: "all", is_closed: "all", no_sponsorship: "all", requires_citizenship: "all", requires_advanced_degree: "all" });
   const [excludeApplied, setExcludeApplied] = useState(true);
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [busy, setBusy] = useState(true);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, limit: 24, total: 0, totalPages: 1, hasMore: false });
@@ -63,6 +64,7 @@ export default function PicksPage() {
     setBusy(true);
     const params = new URLSearchParams({ limit: "24", page: String(requestedPage) });
     if (!excludeApplied) params.set("exclude_applied", "false");
+    if (sourceFilter !== "all") params.set("source", sourceFilter);
     keys.forEach((key) => filters[key] !== "all" && params.set(key, filters[key]));
     const [keywordRes, picksRes] = await Promise.all([fetch("/api/keywords"), fetch(`/api/top-picks?${params}`)]);
     if (keywordRes.ok) setKeywords(await keywordRes.json());
@@ -73,7 +75,7 @@ export default function PicksPage() {
       setPage(json.pagination.page);
     }
     setBusy(false);
-  }, [excludeApplied, filters, page]);
+  }, [excludeApplied, filters, page, sourceFilter]);
 
   useEffect(() => { if (filtersHydrated) load(1); }, [excludeApplied, filters, filtersHydrated]);
   const addKeyword = async () => {
@@ -152,6 +154,13 @@ export default function PicksPage() {
           <button onClick={() => setShowKeywordsManager(true)} className="mt-5 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white dark:bg-white dark:text-zinc-900">Manage keywords — {keywords.length}</button>
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="text-xs font-medium text-amber-900 dark:text-amber-100">Filter Top Picks:</span>
+            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs text-zinc-700 dark:border-amber-800 dark:bg-zinc-900 dark:text-zinc-300">
+              <option value="all">All sources</option>
+              <option value="simplify">Simplify</option>
+              <option value="canadian-tech">Canadian Tech</option>
+              <option value="manual">Manual</option>
+              <option value="multiple">Multiple sources</option>
+            </select>
             {tagDefinitions.map((tag) => {
               const value = filters[tag.key];
               const isOnly = value === "only";
