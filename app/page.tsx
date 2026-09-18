@@ -55,6 +55,7 @@ export default function Home() {
   const [ageFilter, setAgeFilter] = useState<string>("all");
   const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>("all");
   const [sort, setSort] = useState<SortKey>("newest");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [tagFilters, setTagFilters] = useState<Record<TagKey, TagFilter>>(DEFAULT_TAG_FILTERS);
   const [tagFiltersHydrated, setTagFiltersHydrated] = useState(false);
 
@@ -127,6 +128,7 @@ export default function Home() {
       if (ageFilter !== "all") params.set("age", ageFilter);
       if (appliedFilter !== "all") params.set("applied", appliedFilter);
       if (sort !== "newest") params.set("sort", sort);
+      if (sourceFilter !== "all") params.set("source", sourceFilter);
       (Object.keys(tagFilters) as TagKey[]).forEach((k) => {
         if (tagFilters[k] !== "all") params.set(k, tagFilters[k]);
       });
@@ -160,7 +162,7 @@ export default function Home() {
         setIsLoadingMore(false);
       }
     },
-    [query, ageFilter, appliedFilter, sort, tagFilters]
+    [query, ageFilter, appliedFilter, sort, sourceFilter, tagFilters]
   );
 
   useEffect(() => {
@@ -181,6 +183,7 @@ export default function Home() {
     setAgeFilter("all");
     setAppliedFilter("all");
     setSort("newest");
+    setSourceFilter("all");
     setTagFilters({
       is_faang: "all",
       is_closed: "all",
@@ -301,7 +304,7 @@ export default function Home() {
                   className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400"
                   style={{ padding: `${4 + (1 - p) * 4}px ${8 + (1 - p) * 4}px`, fontSize: `${11 + (1 - p) * 1}px` }}
                 >
-                  <span className={`h-2 w-2 rounded-full ${isLoading ? "bg-amber-500 animate-pulse" : "bg-emerald-500 animate-pulse"}`} />{pagination.total.toLocaleString()} results{query || ageFilter !== "all" || appliedFilter !== "all" || hasActiveTagFilters ? " (filtered)" : ""}{hasActiveTagFilters ? ` • ${activeTagCount} tag` : ""}
+                  <span className={`h-2 w-2 rounded-full ${isLoading ? "bg-amber-500 animate-pulse" : "bg-emerald-500 animate-pulse"}`} />{pagination.total.toLocaleString()} results{query || ageFilter !== "all" || appliedFilter !== "all" || sourceFilter !== "all" || hasActiveTagFilters ? " (filtered)" : ""}{hasActiveTagFilters ? ` • ${activeTagCount} tag` : ""}
                 </span>
                 <span className="inline-flex sm:hidden rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400" style={{ padding: `${4 + (1 - p) * 4}px ${8 + (1 - p) * 4}px`, fontSize: `${11 + (1 - p) * 1}px` }}>{pagination.total} results</span>
               </div>
@@ -322,8 +325,9 @@ export default function Home() {
               <div className="flex flex-wrap gap-2 sm:gap-3">
                 <div className="relative"><select value={ageFilter} onChange={(e) => handleAgeChange(e.target.value)} className="appearance-none rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pl-3 pr-8 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-white/10" style={{ paddingTop: `${8 + (1 - p) * 2}px`, paddingBottom: `${8 + (1 - p) * 2}px` }}><option value="all">All ages</option>{facets.ages.map((a) => <option key={a} value={a}>{a} {a === "0d" ? "(Today)" : ""}</option>)}</select><svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg></div>
                 <div className="relative"><select value={appliedFilter} onChange={(e) => handleAppliedChange(e.target.value as AppliedFilter)} className="appearance-none rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pl-3 pr-8 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-white/10" style={{ paddingTop: `${8 + (1 - p) * 2}px`, paddingBottom: `${8 + (1 - p) * 2}px` }}><option value="all">All • {stats.total}</option><option value="not_applied">Not applied • {stats.notApplied}</option><option value="applied">Applied • {stats.applied}</option></select><svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg></div>
+                <div className="relative"><select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="appearance-none rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pl-3 pr-8 text-sm text-zinc-900 dark:text-zinc-100"><option value="all">All sources</option><option value="simplify">Simplify</option><option value="canadian-tech">Canadian Tech</option><option value="manual">Manual</option><option value="multiple">Multiple sources</option></select></div>
                 <div className="relative flex-1 sm:flex-initial min-w-[150px]"><select value={sort} onChange={(e) => handleSortChange(e.target.value as SortKey)} className="w-full appearance-none rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pl-3 pr-8 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-white/10" style={{ paddingTop: `${8 + (1 - p) * 2}px`, paddingBottom: `${8 + (1 - p) * 2}px` }}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="company">Company A–Z</option><option value="role">Role A–Z</option></select><svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg></div>
-                {(query || ageFilter !== "all" || appliedFilter !== "all" || sort !== "newest" || hasActiveTagFilters) && <button onClick={handleClear} className="hidden sm:inline-flex items-center rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800" style={{ padding: `${8 + (1 - p) * 2}px ${12 + (1 - p) * 2}px`, fontSize: "14px" }}>Clear</button>}
+                {(query || ageFilter !== "all" || appliedFilter !== "all" || sourceFilter !== "all" || sort !== "newest" || hasActiveTagFilters) && <button onClick={handleClear} className="hidden sm:inline-flex items-center rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800" style={{ padding: `${8 + (1 - p) * 2}px ${12 + (1 - p) * 2}px`, fontSize: "14px" }}>Clear</button>}
               </div>
             </div>
             {/* Tag filters — backend-filtered and scroll-linked */}

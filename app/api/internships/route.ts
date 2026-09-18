@@ -53,6 +53,7 @@ export async function GET(req: Request) {
   const ageFilter = searchParams.get("age") || "all";
   const appliedFilter = searchParams.get("applied") || "all"; // all | applied | not_applied
   const dislikedFilter = searchParams.get("disliked") || "not_disliked";
+  const sourceFilter = (searchParams.get("source") || "all").trim();
   const includeDisliked = searchParams.get("include_disliked") === "true";
   const sort = toSortOrder(searchParams.get("sort") || "newest");
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
@@ -81,6 +82,7 @@ export async function GET(req: Request) {
     }
     if (dislikedFilter === "disliked") conditions.push(eq(internships.disliked, true));
     else if (!includeDisliked && dislikedFilter !== "all") conditions.push(eq(internships.disliked, false));
+    if (sourceFilter !== "all") conditions.push(eq(internships.source, sourceFilter));
     if (q) {
       const pattern = `%${q}%`;
       conditions.push(
@@ -106,6 +108,7 @@ export async function GET(req: Request) {
     }
     if (dislikedFilter === "disliked") baseConditions.push(eq(internships.disliked, true));
     else if (!includeDisliked && dislikedFilter !== "all") baseConditions.push(eq(internships.disliked, false));
+    if (sourceFilter !== "all") baseConditions.push(eq(internships.source, sourceFilter));
     if (q) {
       const pattern = `%${q}%`;
       baseConditions.push(
@@ -175,7 +178,7 @@ export async function GET(req: Request) {
       pagination: { page, limit, total, totalPages, hasMore },
       stats: { total, applied: appliedCount, notApplied: notAppliedCount, disliked: dislikedCount },
       facets: { ages },
-      meta: { source: "db" as const, sort, filters: { q, age: ageFilter, applied: appliedFilter, ...tagFilters } },
+      meta: { source: "db" as const, sort, filters: { q, age: ageFilter, applied: appliedFilter, source: sourceFilter, ...tagFilters } },
     });
   } catch (e) {
     console.error("GET /api/internships failed:", e);
