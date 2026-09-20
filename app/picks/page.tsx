@@ -77,7 +77,7 @@ export default function PicksPage() {
     setBusy(false);
   }, [excludeApplied, filters, page, sourceFilter]);
 
-  useEffect(() => { if (filtersHydrated) load(1); }, [excludeApplied, filters, filtersHydrated]);
+  useEffect(() => { if (filtersHydrated) load(1); }, [excludeApplied, filters, sourceFilter, filtersHydrated]);
   const addKeyword = async () => {
     const value = newKeyword.trim();
     if (!value) return;
