@@ -60,7 +60,6 @@ export default function Home() {
   const [tagFiltersHydrated, setTagFiltersHydrated] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
-  const [scrollProgress, setScrollProgress] = useState(0);
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -97,26 +96,6 @@ export default function Home() {
     const t = setTimeout(() => setQuery(queryInput.trim()), 300);
     return () => clearTimeout(t);
   }, [queryInput]);
-
-  useEffect(() => {
-    const maxScroll = 80; // px to fully compact
-    let ticking = false;
-    const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-    const update = () => {
-      const y = window.scrollY;
-      const p = clamp(y / maxScroll, 0, 1);
-      setScrollProgress(p);
-      ticking = false;
-    };
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(update);
-    };
-    update();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
 
   const fetchPage = useCallback(
     async (page: number, append: boolean) => {
@@ -259,8 +238,8 @@ export default function Home() {
     }
   };
 
-  // scroll-linked header metrics (0 = expanded, 1 = compact) — linear scrub from 0..80px
-  const p = scrollProgress;
+  // Keep the sticky header's layout dimensions stable while scrolling.
+  const p = 0;
   const headerShadowOpacity = p * 0.08;
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-zinc-950">
