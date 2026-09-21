@@ -60,6 +60,7 @@ export default function Home() {
   const [tagFiltersHydrated, setTagFiltersHydrated] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
 
   useEffect(() => {
     const restore = window.setTimeout(() => {
@@ -96,6 +97,23 @@ export default function Home() {
     const t = setTimeout(() => setQuery(queryInput.trim()), 300);
     return () => clearTimeout(t);
   }, [queryInput]);
+
+  useEffect(() => {
+    let ticking = false;
+    const update = () => {
+      setScrollProgress(Math.min(1, Math.max(0, window.scrollY / 80)));
+      ticking = false;
+    };
+    const onScroll = () => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const fetchPage = useCallback(
     async (page: number, append: boolean) => {
@@ -238,8 +256,7 @@ export default function Home() {
     }
   };
 
-  // Keep the sticky header's layout dimensions stable while scrolling.
-  const p = 0;
+  const p = scrollProgress;
   const headerShadowOpacity = p * 0.08;
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-zinc-950">
@@ -248,6 +265,7 @@ export default function Home() {
         className="sticky top-0 z-30 backdrop-blur-xl border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80"
         style={{
           boxShadow: p > 0.01 ? `0 1px 8px rgba(0,0,0,${headerShadowOpacity})` : undefined,
+          overflowAnchor: "none",
         }}
       >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
