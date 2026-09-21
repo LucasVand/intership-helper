@@ -285,10 +285,9 @@ export default function Home() {
                     fontSize: `${14 - p * 2}px`,
                     opacity: 1 - p * 0.15,
                     maxHeight: `${80 - p * 55}px`,
-                    display: p > 0.85 ? "none" : undefined,
                   }}
                 >
-                  Browse <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> internships{stats.applied > 0 && <> • <Link href="/applied" className="font-medium text-emerald-700 dark:text-emerald-300 hover:underline underline-offset-4">{stats.applied} applied</Link></>} . <span style={{ opacity: 1 - p * 0.8, display: p > 0.7 ? "none" : "inline" }}>Backend paginated (Postgres).</span> {pagination.total > 0 && <span className="ml-1 text-zinc-500 dark:text-zinc-500" style={{ opacity: 1 - p, display: p > 0.5 ? "none" : "inline" }}>Page {pagination.page}/{pagination.totalPages} • {LIMIT}/page</span>}</p>
+                  Browse <span className="font-medium text-zinc-900 dark:text-zinc-100">{pagination.total.toLocaleString()}</span> internships{stats.applied > 0 && <> • <Link href="/applied" className="font-medium text-emerald-700 dark:text-emerald-300 hover:underline underline-offset-4">{stats.applied} applied</Link></>} . <span style={{ opacity: 1 - p * 0.8 }}>Backend paginated (Postgres).</span> {pagination.total > 0 && <span className="ml-1 text-zinc-500 dark:text-zinc-500" style={{ opacity: 1 - p }}>Page {pagination.page}/{pagination.totalPages} • {LIMIT}/page</span>}</p>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <Link href="/applied" className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300" style={{ padding: `${4 + (1 - p) * 6}px ${10 + (1 - p) * 6}px`, fontSize: `${11 + (1 - p) * 1}px` }}>
@@ -379,7 +378,7 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-8">
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-8" style={{ overflowAnchor: "none" }}>
         {isLoading && internships.length === 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="animate-pulse rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 h-48" />)}</div>
         ) : internships.length === 0 ? (
