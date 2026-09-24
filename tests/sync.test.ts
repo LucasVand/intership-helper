@@ -60,9 +60,9 @@ describe("getDatabaseUrl", () => {
 });
 
 describe("makeKey", () => {
-  it("normalizes via normalizeApplicationLink", () => {
+  it("returns trimmed raw link (no normalization)", () => {
     expect(makeKey({ applicationLink: "HTTPS://EXAMPLE.COM:443/job/?utm_source=Simplify&ref=1#hash" })).toBe(
-      "https://example.com/job?ref=1"
+      "HTTPS://EXAMPLE.COM:443/job/?utm_source=Simplify&ref=1#hash"
     );
   });
 
@@ -74,7 +74,7 @@ describe("makeKey", () => {
       location: "NYC",
       applicationLink: "https://example.com/job?utm_source=x",
     };
-    expect(makeKey(r)).toBe("https://example.com/job");
+    expect(makeKey(r)).toBe("https://example.com/job?utm_source=x");
   });
 });
 
@@ -184,26 +184,24 @@ describe("buildLogPayload", () => {
 });
 
 describe("findDuplicateRows", () => {
-  it("detects duplicates via normalized link (utm stripped)", () => {
+  it("detects duplicates via exact link (no normalization — utm kept)", () => {
     const existing = [
       { id: 1, applicationLink: "https://example.com/job?utm_source=Simplify&ref=1", company: "A" },
       { id: 2, applicationLink: "https://example.com/job?ref=1", company: "A" },
       { id: 3, applicationLink: "https://example.com/other", company: "B" },
     ] as any;
     const { existingMap, duplicateRows } = findDuplicateRows(existing);
-    expect(duplicateRows).toHaveLength(1);
-    expect(duplicateRows[0].duplicate.id).toBe(2);
-    expect(duplicateRows[0].survivor.id).toBe(1);
-    expect(existingMap.size).toBe(2); // job -> survivor, other
+    expect(duplicateRows).toHaveLength(0);
+    expect(existingMap.size).toBe(3); // all distinct without normalization
   });
 
-  it("handles case and trailing slash normalization", () => {
+  it("handles case and trailing slash as distinct (no normalization)", () => {
     const existing = [
       { id: 1, applicationLink: "https://EXAMPLE.COM/job/" },
       { id: 2, applicationLink: "https://example.com/job" },
     ] as any;
     const { duplicateRows } = findDuplicateRows(existing);
-    expect(duplicateRows).toHaveLength(1);
+    expect(duplicateRows).toHaveLength(0);
   });
 
   it("no duplicates returns empty", () => {
@@ -242,13 +240,13 @@ describe("computeNewEntries", () => {
     expect(result[0].company).toBe("A");
   });
 
-  it("normalizes tracking params for dedup (utm stripped)", () => {
+  it("keeps utm params distinct (no normalization)", () => {
     const map = new Map<string, any>([["https://example.com/job?ref=1", { id: 1 }]]);
     const scraped: ScrapedInternship[] = [
       { source: "simplify", company: "A", role: "R", location: "NYC", applicationLink: "https://example.com/job?utm_source=Simplify&ref=1" },
     ];
     const result = computeNewEntries(scraped, map);
-    expect(result).toHaveLength(0); // considered existing after normalization
+    expect(result).toHaveLength(1); // distinct without normalization
   });
 
   it("skips empty link", () => {
@@ -302,7 +300,7 @@ describe("computeToUpdate", () => {
     expect(computeToUpdate(scraped, baseExisting)).toHaveLength(0);
   });
 
-  it("detects applicationLink normalization change (utm stripped)", () => {
+  it("does not detect utm change as update (no normalization, exact match) 3", () => {
     // DB has raw with utm, scraped normalized will differ from DB raw, but key is normalized -> should trigger applicationLink reason
     const existingWithUtm = new Map<string, any>([
       [
@@ -334,8 +332,7 @@ describe("computeToUpdate", () => {
     ];
     // makeKey for scraped normalizes, so key = https://example.com/job?ref=1 which matches map key, but ex.applicationLink !== key triggers reason
     const result = computeToUpdate(scraped, existingWithUtm);
-    expect(result).toHaveLength(1);
-    expect(result[0].reasons.join()).toContain("applicationLink");
+    expect(result).toHaveLength(0);
   });
 
   it("detects flag changes", () => {
