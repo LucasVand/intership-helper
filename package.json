@@ -30,6 +30,8 @@
     "db:sync": "tsx scripts/sync-internships.ts && npm run db:prune",
     "db:sync:dry": "tsx scripts/sync-internships.ts --dry-run",
     "db:prune": "tsx scripts/prune-sync-history.ts",
+    "db:dedupe": "tsx scripts/dedupe-normalized.ts --dry-run",
+    "db:dedupe:apply": "tsx scripts/dedupe-normalized.ts --apply",
     "dev:db": "npm run db:setup && npm run dev",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down"
