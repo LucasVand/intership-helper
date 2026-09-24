@@ -11,6 +11,12 @@ import { normalizeApplicationLink } from "./normalize-url";
 
 const SOURCES = [simplifySource, canadianTechSource] as const;
 
+export function isTruncatedL3HarrisLink(link: string): boolean {
+  // Detects truncated L3Harris URLs from old parser: https://jobs.l3harris.com/job/Waterdown-Software-Engineering-Co-Op-(Waterdown,-CAN
+  // without the trailing )-ON-L9H-0C5/{jobId}/?ats=... — caused by regex /\]\(([^)]+)\)/ stopping at first ')' inside URL
+  return link.includes("(Waterdown,-CAN") && !link.includes("1430") && !link.includes("?ats=");
+}
+
 export function getDatabaseUrl(): string | undefined {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const { POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB } = process.env;
@@ -375,10 +381,12 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
   const db = drizzle(pool);
 
   let existing: typeof internships.$inferSelect[];
+  let originalExistingCount = 0;
   try {
     const rows = await db.select().from(internships);
     existing = rows;
     console.log(`DB has ${existing.length} existing internships`);
+    originalExistingCount = existing.length;
   } catch (e: any) {
     console.error("Failed to query DB (have you run `npm run db:migrate`?):", e);
     const durationMs = Date.now() - startMs;
@@ -399,6 +407,21 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
     } catch {}
     await pool.end();
     throw e;
+  }
+
+  // One-time cleanup for truncated L3Harris URLs from old parser (regex stopped at first ')' inside URL)
+  const truncatedRows = existing.filter((r) => isTruncatedL3HarrisLink(r.applicationLink));
+  if (truncatedRows.length > 0) {
+    console.log(`Found ${truncatedRows.length} truncated L3Harris URLs to clean up (old parser bug)`);
+    if (!dryRun) {
+      await db.delete(internships).where(inArray(internships.id, truncatedRows.map((r) => r.id)));
+      existing = existing.filter((r) => !isTruncatedL3HarrisLink(r.applicationLink));
+      console.log(`  deleted ${truncatedRows.length} truncated rows — they will be re-inserted with correct full URLs on next sync`);
+    } else {
+      console.log(`  dry run — would delete ${truncatedRows.length} truncated rows`);
+      // for dryRun, pretend they are already deleted for stats
+      existing = existing.filter((r) => !isTruncatedL3HarrisLink(r.applicationLink));
+    }
   }
 
   const { existingMap, duplicateRows } = findDuplicateRows(existing as any);
@@ -485,7 +508,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
     if (logFilePath) {
       const payload = buildLogPayload(newEntries, toUpdate as any, {
         scrapedCount: scraped.length,
-        existingCount: existing.length,
+        existingCount: originalExistingCount,
         totalAfter: existingAfterDedup,
         durationMs,
         status: "success",
@@ -495,7 +518,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
     }
     await recordSyncRun(pool, db, {
       scrapedCount: scraped.length,
-      existingCount: existing.length,
+      existingCount: originalExistingCount,
       insertedCount: 0,
       updatedCount: 0,
       totalAfter: existingAfterDedup,
@@ -508,7 +531,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
     await pool.end();
     return {
       scrapedCount: scraped.length,
-      existingCount: existing.length,
+      existingCount: originalExistingCount,
       insertedCount: 0,
       updatedCount: 0,
       totalAfter: existingAfterDedup,
@@ -526,7 +549,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
     if (logFilePath) {
       const payload = buildLogPayload(newEntries, toUpdate as any, {
         scrapedCount: scraped.length,
-        existingCount: existing.length,
+        existingCount: originalExistingCount,
         totalAfter: existingAfterDedup,
         durationMs,
         status: "dry_run",
@@ -539,7 +562,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
     }
     await recordSyncRun(pool, db, {
       scrapedCount: scraped.length,
-      existingCount: existing.length,
+      existingCount: originalExistingCount,
       insertedCount: newEntries.length,
       updatedCount: toUpdate.length,
       totalAfter: existingAfterDedup,
@@ -552,7 +575,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
     await pool.end();
     return {
       scrapedCount: scraped.length,
-      existingCount: existing.length,
+      existingCount: originalExistingCount,
       insertedCount: newEntries.length,
       updatedCount: toUpdate.length,
       totalAfter: existingAfterDedup,
@@ -612,7 +635,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
   if (logFilePath) {
     const payload = buildLogPayload(newEntries, toUpdate as any, {
       scrapedCount: scraped.length,
-      existingCount: existing.length,
+      existingCount: originalExistingCount,
       totalAfter: existingAfterDedup + inserted,
       durationMs,
       status: "success",
@@ -626,7 +649,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
 
   await recordSyncRun(pool, db, {
     scrapedCount: scraped.length,
-    existingCount: existing.length,
+    existingCount: originalExistingCount,
     insertedCount: inserted,
     updatedCount: updated,
     totalAfter: existingAfterDedup + inserted,
@@ -641,7 +664,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
 
   return {
     scrapedCount: scraped.length,
-    existingCount: existing.length,
+    existingCount: originalExistingCount,
     insertedCount: inserted,
     updatedCount: updated,
     totalAfter: existingAfterDedup + inserted,

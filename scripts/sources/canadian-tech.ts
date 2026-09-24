@@ -33,8 +33,38 @@ export function parseCanadianMarkdown(markdown: string): ScrapedInternship[] {
     const company = isContinuation ? lastCompany : rawCompany;
     const role = tds[1].replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").trim();
     const location = tds[2].trim();
-    const links = [...tds[3].matchAll(/\]\(([^)]+)\)/g)];
-    const applicationLink = links.at(-1)?.[1]?.trim();
+    // Robustly extract the last markdown link URL, handling URLs that contain '(' and ')' like
+    // https://jobs.l3harris.com/job/Waterdown-Software-Engineering-Co-Op-(Waterdown,-CAN)-ON-L9H-0C5/1430130200/?ats=successfactors
+    // The simple regex /\]\(([^)]+)\)/ stops at the first ')' inside the URL and truncates to
+    // https://jobs.l3harris.com/job/Waterdown-Software-Engineering-Co-Op-(Waterdown,-CAN
+    // which caused 3 L3Harris rows to share the same truncated application_link, leading to
+    // duplicate detection and role flipping (Software Engineering ↔ Software Engineer) for the same id.
+    let applicationLink: string | undefined;
+    const lastOpen = tds[3].lastIndexOf("](");
+    const lastClose = tds[3].lastIndexOf(")");
+    if (lastOpen !== -1 && lastClose > lastOpen + 1) {
+      applicationLink = tds[3].slice(lastOpen + 2, lastClose).trim();
+      // Guard against capturing the badge URL instead of the job URL when the cell is [![Apply](badge)](jobUrl)
+      // The job URL should not be the badge (img.shields.io). If it is, fallback to regex.
+      if (applicationLink.includes("img.shields.io")) {
+        const links = [...tds[3].matchAll(/\]\(([^)]+)\)/g)];
+        // Find the last non-badge link
+        for (let i = links.length - 1; i >= 0; i--) {
+          const candidate = links[i][1]?.trim();
+          if (candidate && !candidate.includes("img.shields.io")) {
+            applicationLink = candidate;
+            break;
+          }
+        }
+      }
+    } else {
+      const links = [...tds[3].matchAll(/\]\(([^)]+)\)/g)];
+      applicationLink = links.at(-1)?.[1]?.trim();
+      // Skip badge if it's the only match
+      if (applicationLink?.includes("img.shields.io") && links.length > 1) {
+        applicationLink = links[links.length - 2]?.[1]?.trim();
+      }
+    }
     if (!company || !role || !applicationLink || /^company$/i.test(company)) continue;
     if (!isContinuation) lastCompany = company;
     result.push({

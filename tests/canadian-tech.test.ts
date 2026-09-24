@@ -154,4 +154,18 @@ describe("parseCanadianMarkdown", () => {
     expect(rows).toHaveLength(5);
     expect(rows.every((r) => r.company === "Intelcom | Dragonfly")).toBe(true);
   });
+
+  it("handles URLs with parentheses (L3Harris) without truncating", () => {
+    const md = `${header}
+| L3Harris Technologies | Software Engineering Co-op | Waterdown, ON | [![Apply](https://img.shields.io/badge/-Apply-blue)](https://jobs.l3harris.com/job/Waterdown-Software-Engineering-Co-Op-(Waterdown,-CAN)-ON-L9H-0C5/1430130200/?ats=successfactors) | Sep 15, 2026 |
+| ↳ | Software Engineer Co-op | Waterdown, ON | [![Apply](https://img.shields.io/badge/-Apply-blue)](https://jobs.l3harris.com/job/Waterdown-Software-Engineering-Co-Op-(Waterdown,-CAN)-ON-L9H-0C5/1430129400/?ats=successfactors) | Sep 15, 2026 |`;
+    const rows = parseCanadianMarkdown(md);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].applicationLink).toBe("https://jobs.l3harris.com/job/Waterdown-Software-Engineering-Co-Op-(Waterdown,-CAN)-ON-L9H-0C5/1430130200/?ats=successfactors");
+    expect(rows[1].applicationLink).toBe("https://jobs.l3harris.com/job/Waterdown-Software-Engineering-Co-Op-(Waterdown,-CAN)-ON-L9H-0C5/1430129400/?ats=successfactors");
+    expect(rows[0].role).toBe("Software Engineering Co-op");
+    expect(rows[1].role).toBe("Software Engineer Co-op");
+    // Ensure they are distinct links, not truncated to same prefix
+    expect(rows[0].applicationLink).not.toBe(rows[1].applicationLink);
+  });
 });
