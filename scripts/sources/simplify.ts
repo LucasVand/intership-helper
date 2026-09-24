@@ -4,14 +4,14 @@ import type { InternshipSourceAdapter, ScrapedInternship } from "./types";
 
 const URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md";
 
-function cleanText(text: string): string {
+export function cleanText(text: string): string {
   return text
     .replace(/🛂|🇺🇸|🔒|🔥|🎓/g, "")
     .trim()
     .replace(/\s{2,}/g, " ");
 }
 
-function parsePostedAt(age?: string): Date | undefined {
+export function parsePostedAt(age?: string): Date | undefined {
   if (!age) return undefined;
   const match = age.trim().toLowerCase().match(/^(\d+)\s*(m|min|mins|h|hr|hrs|d|day|days|w|wk|wks|mo|mos)$/);
   if (!match) return undefined;
@@ -26,10 +26,8 @@ function parsePostedAt(age?: string): Date | undefined {
   return new Date(Date.now() - minutes * 60 * 1000);
 }
 
-async function fetchAndParse(): Promise<ScrapedInternship[]> {
-  const res = await fetch(URL, { headers: { "User-Agent": "node.js" } });
-  if (!res.ok) throw new Error(`Failed to fetch README: ${res.status} ${res.statusText}`);
-  const $ = cheerio.load(await res.text());
+export function parseSimplifyHtml(html: string): ScrapedInternship[] {
+  const $ = cheerio.load(html);
   const result: ScrapedInternship[] = [];
   let lastCompany = "";
   let lastFlags = { noSponsorship: false, requiresCitizenship: false, isClosed: false, isFaang: false, requiresAdvancedDegree: false };
@@ -84,6 +82,12 @@ async function fetchAndParse(): Promise<ScrapedInternship[]> {
     });
   });
   return result;
+}
+
+async function fetchAndParse(): Promise<ScrapedInternship[]> {
+  const res = await fetch(URL, { headers: { "User-Agent": "node.js" } });
+  if (!res.ok) throw new Error(`Failed to fetch README: ${res.status} ${res.statusText}`);
+  return parseSimplifyHtml(await res.text());
 }
 
 export const simplifySource: InternshipSourceAdapter = { source: "simplify", url: URL, fetchAndParse };

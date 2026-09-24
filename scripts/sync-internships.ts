@@ -16,7 +16,7 @@ import { normalizeApplicationLink } from "./normalize-url";
 
 const SOURCES: InternshipSourceAdapter[] = [simplifySource, canadianTechSource];
 
-function getDatabaseUrl(): string | undefined {
+export function getDatabaseUrl(): string | undefined {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
 
   const { POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB } = process.env;
@@ -27,7 +27,7 @@ function getDatabaseUrl(): string | undefined {
   return `postgresql://${encodeURIComponent(POSTGRES_USER)}:${encodeURIComponent(POSTGRES_PASSWORD)}@${host}:${port}/${encodeURIComponent(POSTGRES_DB)}`;
 }
 
-function makeKey(r: ScrapedInternship | { applicationLink: string }): string {
+export function makeKey(r: ScrapedInternship | { applicationLink: string }): string {
   return normalizeApplicationLink(r.applicationLink);
 }
 
@@ -66,7 +66,7 @@ async function recordSyncRun(
   }
 }
 
-function getLogFilePath(args: string[]): string | null {
+export function getLogFilePath(args: string[]): string | null {
   const flag = args.find((a) => a.startsWith("--log-file"));
   if (!flag) return process.env.SYNC_LOG_FILE ?? null;
   if (flag === "--log-file") return `logs/sync-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
@@ -75,11 +75,11 @@ function getLogFilePath(args: string[]): string | null {
   return process.env.SYNC_LOG_FILE ?? `logs/sync-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
 }
 
-function formatFlag(v: boolean | undefined): string {
+export function formatFlag(v: boolean | undefined): string {
   return v ? "true" : "false";
 }
 
-function flagLabel(key: string, before: boolean, after: boolean): string {
+export function flagLabel(key: string, before: boolean, after: boolean): string {
   const emoji: Record<string, string> = {
     noSponsorship: "🛂",
     requiresCitizenship: "🇺🇸",
@@ -90,7 +90,7 @@ function flagLabel(key: string, before: boolean, after: boolean): string {
   return `${key}${emoji[key] ? ` ${emoji[key]}` : ""}: ${formatFlag(before)}→${formatFlag(after)}`;
 }
 
-function buildLogPayload(
+export function buildLogPayload(
   newEntries: ScrapedInternship[],
   toUpdate: Array<{ id: number; flags: ScrapedInternship; cleanCompany: string; cleanRole: string; source: string; reasons: string[]; existing: any }>,
   meta: { scrapedCount: number; existingCount: number; totalAfter: number; durationMs: number; status: string; dryRun: boolean }
@@ -152,7 +152,7 @@ function buildLogPayload(
   };
 }
 
-function maybeWriteLogFile(logFilePath: string | null, payload: unknown) {
+export function maybeWriteLogFile(logFilePath: string | null, payload: unknown) {
   if (!logFilePath) return;
   try {
     const dir = path.dirname(logFilePath);
@@ -162,6 +162,86 @@ function maybeWriteLogFile(logFilePath: string | null, payload: unknown) {
   } catch (e: any) {
     console.warn(`  warning: could not write log file ${logFilePath}: ${e?.message ?? e}`);
   }
+}
+
+export function findDuplicateRows(existing: Array<{ applicationLink: string } & Record<string, any>>) {
+  const existingMap = new Map<string, (typeof existing)[number]>();
+  const duplicateRows: Array<{ duplicate: (typeof existing)[number]; survivor: (typeof existing)[number] }> = [];
+  for (const r of existing) {
+    const key = makeKey(r as any);
+    const survivor = existingMap.get(key);
+    if (survivor) duplicateRows.push({ duplicate: r as any, survivor });
+    else existingMap.set(key, r as any);
+  }
+  return { existingMap, duplicateRows };
+}
+
+export function computeNewEntries(
+  scraped: ScrapedInternship[],
+  existingMap: Map<string, any>,
+): ScrapedInternship[] {
+  const seenScrapedLinks = new Set<string>();
+  return scraped.filter((r) => {
+    const link = makeKey(r);
+    if (!link || existingMap.has(link) || seenScrapedLinks.has(link)) return false;
+    seenScrapedLinks.add(link);
+    return true;
+  });
+}
+
+export type ToUpdateEntry = {
+  id: number;
+  flags: ScrapedInternship;
+  cleanCompany: string;
+  cleanRole: string;
+  source: string;
+  reasons: string[];
+  existing: any;
+};
+
+export function computeToUpdate(
+  scraped: ScrapedInternship[],
+  existingMap: Map<string, any>,
+): ToUpdateEntry[] {
+  const toUpdate: ToUpdateEntry[] = [];
+  for (const s of scraped) {
+    const key = makeKey(s);
+    if (!key) continue;
+    const ex = existingMap.get(key);
+    if (!ex) continue;
+    const sFlags = {
+      noSponsorship: Boolean(s.noSponsorship),
+      requiresCitizenship: Boolean(s.requiresCitizenship),
+      isClosed: Boolean(s.isClosed),
+      isFaang: Boolean(s.isFaang),
+      requiresAdvancedDegree: Boolean(s.requiresAdvancedDegree),
+    };
+    const reasons: string[] = [];
+    if (ex.applicationLink !== key) reasons.push(`applicationLink: "${ex.applicationLink}" → "${key}"`);
+    if (ex.noSponsorship !== sFlags.noSponsorship) reasons.push(flagLabel("noSponsorship", ex.noSponsorship, sFlags.noSponsorship));
+    if (ex.requiresCitizenship !== sFlags.requiresCitizenship) reasons.push(flagLabel("requiresCitizenship", ex.requiresCitizenship, sFlags.requiresCitizenship));
+    if (ex.isClosed !== sFlags.isClosed) reasons.push(flagLabel("isClosed", ex.isClosed, sFlags.isClosed));
+    if (ex.isFaang !== sFlags.isFaang) reasons.push(flagLabel("isFaang", ex.isFaang, sFlags.isFaang));
+    if (ex.requiresAdvancedDegree !== sFlags.requiresAdvancedDegree) reasons.push(flagLabel("requiresAdvancedDegree", ex.requiresAdvancedDegree, sFlags.requiresAdvancedDegree));
+    if (ex.company !== s.company) reasons.push(`company: "${ex.company}" → "${s.company}"`);
+    if (ex.role !== s.role) reasons.push(`role: "${ex.role}" → "${s.role}"`);
+    const mergedSource = ex.source === s.source || ex.source === "multiple" ? ex.source : "multiple";
+    if (ex.source !== mergedSource) reasons.push(`source: ${ex.source} → ${mergedSource}`);
+    if (s.postedAt) {
+      if (!ex.postedAt) reasons.push(`postedAt: null → ${s.postedAt.toISOString()} (now dated)`);
+      else {
+        const diffMs = Math.abs(ex.postedAt.getTime() - s.postedAt.getTime());
+        if (diffMs > 12 * 60 * 60 * 1000) {
+          const diffH = (diffMs / (60 * 60 * 1000)).toFixed(1);
+          reasons.push(`postedAt: ${ex.postedAt.toISOString()} → ${s.postedAt.toISOString()} (Δ${diffH}h)`);
+        }
+      }
+    }
+    if (reasons.length > 0) {
+      toUpdate.push({ id: ex.id, flags: s, cleanCompany: s.company, cleanRole: s.role, source: mergedSource, reasons, existing: ex });
+    }
+  }
+  return toUpdate;
 }
 
 async function main() {
