@@ -58,8 +58,6 @@ export default function Home() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [tagFilters, setTagFilters] = useState<Record<TagKey, TagFilter>>(DEFAULT_TAG_FILTERS);
   const [tagFiltersHydrated, setTagFiltersHydrated] = useState(false);
-  const [canadianInternships, setCanadianInternships] = useState<Internship[]>([]);
-  const [canadianLoading, setCanadianLoading] = useState(true);
 
   const abortRef = useRef<AbortController | null>(null);
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -127,7 +125,9 @@ export default function Home() {
       if (ageFilter !== "all") params.set("age", ageFilter);
       if (appliedFilter !== "all") params.set("applied", appliedFilter);
       if (sort !== "newest") params.set("sort", sort);
-      if (sourceFilter !== "all") params.set("source", sourceFilter);
+      // When searching, don't filter by source — Mercury (canadian-tech) should be found even if sourceFilter is simplify
+      // otherwise q=Mercury + source=simplify would hide the canadian-tech Mercury posting at Sep 21
+      if (sourceFilter !== "all" && !query) params.set("source", sourceFilter);
       (Object.keys(tagFilters) as TagKey[]).forEach((k) => {
         if (tagFilters[k] !== "all") params.set(k, tagFilters[k]);
       });
@@ -167,24 +167,6 @@ export default function Home() {
   useEffect(() => {
     fetchPage(1, false);
   }, [fetchPage]);
-
-  useEffect(() => {
-    const fetchCanadian = async () => {
-      setCanadianLoading(true);
-      try {
-        const res = await fetch("/api/internships?source=canadian-tech&limit=6&sort=newest");
-        if (res.ok) {
-          const json = await res.json();
-          setCanadianInternships(json.data as Internship[]);
-        }
-      } catch (e) {
-        console.error("fetchCanadian failed:", e);
-      } finally {
-        setCanadianLoading(false);
-      }
-    };
-    fetchCanadian();
-  }, []);
 
   const handleQueryInputChange = (v: string) => setQueryInput(v);
   const handleAgeChange = (v: string) => setAgeFilter(v);
@@ -399,47 +381,6 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-8" style={{ overflowAnchor: "none" }}>
-        {/* Canadian Tech — Latest 6, always visible so Mercury (Sep 21) doesn't require paging to page 5 */}
-        {sourceFilter !== "canadian-tech" && (
-          <section className="rounded-2xl border border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-950/20 p-5 sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center gap-2">
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-sky-600 text-white text-sm">🍁</span>
-                  Canadian Tech — Latest
-                  <span className="rounded-full bg-white dark:bg-zinc-900 border border-sky-200 dark:border-sky-800 px-2 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-300">
-                    {canadianLoading ? "…" : `${canadianInternships.length} newest`}
-                  </span>
-                </h2>
-                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                  Most recent <code className="font-mono bg-white dark:bg-zinc-900 px-1 py-0.5 rounded border">canadian-tech</code> internships (source: negarprh/Canadian-Tech-Internships-2027). Mercury from Sep 21 appears here without paging to page 5.
-                </p>
-              </div>
-              <button
-                onClick={() => setSourceFilter("canadian-tech")}
-                className="inline-flex items-center rounded-full border border-sky-200 dark:border-sky-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-900/30"
-              >
-                View all Canadian →
-              </button>
-            </div>
-            {canadianLoading ? (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="animate-pulse rounded-2xl border border-sky-200 dark:border-sky-800 bg-white dark:bg-zinc-900 p-5 h-40" />
-                ))}
-              </div>
-            ) : canadianInternships.length === 0 ? (
-              <p className="mt-4 text-sm text-zinc-500">No Canadian internships found. Try sync.</p>
-            ) : (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {canadianInternships.map((job) => (
-                  <InternshipCard key={`canadian-${job.id}`} job={job} onToggle={toggleApplied} onDislike={toggleDisliked} showLegend onTagClick={handleCardTagClick} />
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
         {isLoading && internships.length === 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="animate-pulse rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 h-48" />)}</div>
         ) : internships.length === 0 ? (
