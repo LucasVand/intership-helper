@@ -11,6 +11,31 @@ import { normalizeApplicationLink } from "./normalize-url";
 
 const SOURCES = [simplifySource, canadianTechSource] as const;
 
+// For dedup only — never saved to DB. Re-uses pre-45a61aa logic (bab9786).
+const TRACKING_PARAMETER = /^(utm_[^=]*|fbclid|gclid|dclid|msclkid|igshid|yclid|mc_cid|mc_eid|_ga|_gl)$/i;
+export function normalizeForDedup(link: string): string {
+  const trimmed = link.trim();
+  try {
+    const url = new URL(trimmed);
+    url.protocol = url.protocol.toLowerCase();
+    url.hostname = url.hostname.toLowerCase();
+    if ((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")) url.port = "";
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    const params = [...url.searchParams.entries()]
+      .filter(([name]) => !TRACKING_PARAMETER.test(name))
+      .sort(([a], [b]) => a.localeCompare(b));
+    url.search = "";
+    for (const [name, value] of params) url.searchParams.append(name, value);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return trimmed.split("#", 1)[0];
+  }
+}
+export function dedupKey(link: string): string {
+  return normalizeForDedup(link);
+}
+
 export function getDatabaseUrl(): string | undefined {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const { POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB } = process.env;
@@ -21,7 +46,12 @@ export function getDatabaseUrl(): string | undefined {
 }
 
 export function makeKey(r: ScrapedInternship | { applicationLink: string }): string {
+  // Raw only — what is saved to DB (trim, never normalized)
   return normalizeApplicationLink(r.applicationLink);
+}
+export function makeDedupKey(r: ScrapedInternship | { applicationLink: string }): string {
+  // Normalized only for dedup grouping — never saved
+  return dedupKey(r.applicationLink);
 }
 
 async function recordSyncRun(
@@ -175,13 +205,24 @@ export function maybeWriteLogFile(logFilePath: string | null, payload: unknown) 
 }
 
 export function findDuplicateRows(existing: Array<{ applicationLink: string } & Record<string, any>>) {
+  // Group by normalized key, but keep raw link for survivor
   const existingMap = new Map<string, (typeof existing)[number]>();
   const duplicateRows: Array<{ duplicate: (typeof existing)[number]; survivor: (typeof existing)[number] }> = [];
   for (const r of existing) {
-    const key = makeKey(r as any);
+    const key = dedupKey(r.applicationLink);
     const survivor = existingMap.get(key);
-    if (survivor) duplicateRows.push({ duplicate: r as any, survivor });
-    else existingMap.set(key, r as any);
+    if (survivor) {
+      // Prefer raw (un-normalized) as survivor — keep original URL, never save normalized
+      const survivorIsRaw = survivor.applicationLink.trim() !== normalizeForDedup(survivor.applicationLink);
+      const rowIsRaw = r.applicationLink.trim() !== normalizeForDedup(r.applicationLink);
+      if (rowIsRaw && !survivorIsRaw) {
+        // swap: row is raw, survivor is normalized -> row becomes survivor
+        duplicateRows.push({ duplicate: survivor as any, survivor: r as any });
+        existingMap.set(key, r as any);
+      } else {
+        duplicateRows.push({ duplicate: r as any, survivor });
+      }
+    } else existingMap.set(key, r as any);
   }
   return { existingMap, duplicateRows };
 }
@@ -192,9 +233,9 @@ export function computeNewEntries(
 ): ScrapedInternship[] {
   const seenScrapedLinks = new Set<string>();
   return scraped.filter((r) => {
-    const link = makeKey(r);
-    if (!link || existingMap.has(link) || seenScrapedLinks.has(link)) return false;
-    seenScrapedLinks.add(link);
+    const dedup = dedupKey(r.applicationLink);
+    if (!dedup || existingMap.has(dedup) || seenScrapedLinks.has(dedup)) return false;
+    seenScrapedLinks.add(dedup);
     return true;
   });
 }
@@ -215,9 +256,9 @@ export function computeToUpdate(
 ): ToUpdateEntry[] {
   const toUpdate: ToUpdateEntry[] = [];
   for (const s of scraped) {
-    const key = makeKey(s);
-    if (!key) continue;
-    const ex = existingMap.get(key);
+    const dedup = dedupKey(s.applicationLink);
+    if (!dedup) continue;
+    const ex = existingMap.get(dedup);
     if (!ex) continue;
     const sFlags = {
       noSponsorship: Boolean(s.noSponsorship),
@@ -227,7 +268,9 @@ export function computeToUpdate(
       requiresAdvancedDegree: Boolean(s.requiresAdvancedDegree),
     };
     const reasons: string[] = [];
-    if (ex.applicationLink !== key) reasons.push(`applicationLink: "${ex.applicationLink}" → "${key}"`);
+    // Never treat normalized vs raw as applicationLink change — DB keeps raw only
+    // Only flag if raw links truly differ and dedup still matched (e.g. utm vs non-utm is expected, not a drift)
+    // if (ex.applicationLink.trim() !== s.applicationLink.trim()) reasons.push(`applicationLink: "${ex.applicationLink}" → "${s.applicationLink}"`); // disabled: keep raw, dedup via normalized
     if (ex.noSponsorship !== sFlags.noSponsorship) reasons.push(flagLabel("noSponsorship", ex.noSponsorship, sFlags.noSponsorship));
     if (ex.requiresCitizenship !== sFlags.requiresCitizenship) reasons.push(flagLabel("requiresCitizenship", ex.requiresCitizenship, sFlags.requiresCitizenship));
     if (ex.isClosed !== sFlags.isClosed) reasons.push(flagLabel("isClosed", ex.isClosed, sFlags.isClosed));
@@ -600,7 +643,7 @@ export async function runSync(options: RunSyncOptions): Promise<RunSyncResult> {
         requiresAdvancedDegree: Boolean(u.flags.requiresAdvancedDegree),
         source: u.source,
         postedAt: u.flags.postedAt ?? null,
-        applicationLink: makeKey(u.flags as any),
+        // never overwrite raw link with normalized — keep original
       })
       .where(eq(internships.id, u.id));
     updated++;

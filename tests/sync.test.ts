@@ -184,24 +184,26 @@ describe("buildLogPayload", () => {
 });
 
 describe("findDuplicateRows", () => {
-  it("detects duplicates via exact link (no normalization — utm kept)", () => {
+  it("detects duplicates via normalized link (utm stripped, keeps raw)", () => {
     const existing = [
-      { id: 1, applicationLink: "https://example.com/job?utm_source=Simplify&ref=1", company: "A" },
-      { id: 2, applicationLink: "https://example.com/job?ref=1", company: "A" },
+      { id: 1, applicationLink: "https://example.com/job?utm_source=Simplify&ref=1", company: "A" }, // raw
+      { id: 2, applicationLink: "https://example.com/job?ref=1", company: "A" }, // normalized variant
       { id: 3, applicationLink: "https://example.com/other", company: "B" },
     ] as any;
     const { existingMap, duplicateRows } = findDuplicateRows(existing);
-    expect(duplicateRows).toHaveLength(0);
-    expect(existingMap.size).toBe(3); // all distinct without normalization
+    expect(duplicateRows).toHaveLength(1);
+    expect(existingMap.size).toBe(2); // job (collapsed) + other
+    // keeps raw as survivor
+    expect(duplicateRows[0].survivor.applicationLink).toContain("utm_source");
   });
 
-  it("handles case and trailing slash as distinct (no normalization)", () => {
+  it("handles case and trailing slash as duplicate via dedup (normalized), keeps raw", () => {
     const existing = [
-      { id: 1, applicationLink: "https://EXAMPLE.COM/job/" },
-      { id: 2, applicationLink: "https://example.com/job" },
+      { id: 1, applicationLink: "https://EXAMPLE.COM/job/" }, // raw with case/slash
+      { id: 2, applicationLink: "https://example.com/job" }, // normalized
     ] as any;
     const { duplicateRows } = findDuplicateRows(existing);
-    expect(duplicateRows).toHaveLength(0);
+    expect(duplicateRows).toHaveLength(1);
   });
 
   it("no duplicates returns empty", () => {
@@ -240,13 +242,13 @@ describe("computeNewEntries", () => {
     expect(result[0].company).toBe("A");
   });
 
-  it("keeps utm params distinct (no normalization)", () => {
-    const map = new Map<string, any>([["https://example.com/job?ref=1", { id: 1 }]]);
+  it("treats utm variants as existing via dedup (utm stripped)", () => {
+    const map = new Map<string, any>([["https://example.com/job?ref=1", { id: 1 }]]); // normalized key
     const scraped: ScrapedInternship[] = [
-      { source: "simplify", company: "A", role: "R", location: "NYC", applicationLink: "https://example.com/job?utm_source=Simplify&ref=1" },
+      { source: "simplify", company: "A", role: "R", location: "NYC", applicationLink: "https://example.com/job?utm_source=Simplify&ref=1" }, // raw
     ];
     const result = computeNewEntries(scraped, map);
-    expect(result).toHaveLength(1); // distinct without normalization
+    expect(result).toHaveLength(0); // collapsed via dedup, not inserted
   });
 
   it("skips empty link", () => {
