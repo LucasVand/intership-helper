@@ -5,16 +5,16 @@ describe("parsePostedAt (canadian-tech)", () => {
   it("parses Sep 21, 2026", () => {
     const d = parsePostedAt("Sep 21, 2026");
     expect(d).toBeInstanceOf(Date);
-    expect(d?.toISOString()).toBe("2026-09-21T00:00:00.000Z");
+    expect(d?.toISOString()).toBe("2026-09-21T12:00:00.000Z");
   });
 
   it("parses with single digit day", () => {
-    expect(parsePostedAt("Sep 1, 2026")?.toISOString()).toBe("2026-09-01T00:00:00.000Z");
+    expect(parsePostedAt("Sep 1, 2026")?.toISOString()).toBe("2026-09-01T12:00:00.000Z");
   });
 
   it("parses different months", () => {
-    expect(parsePostedAt("January 15, 2027")?.toISOString()).toBe("2027-01-15T00:00:00.000Z");
-    expect(parsePostedAt("Dec 31, 2026")?.toISOString()).toBe("2026-12-31T00:00:00.000Z");
+    expect(parsePostedAt("January 15, 2027")?.toISOString()).toBe("2027-01-15T12:00:00.000Z");
+    expect(parsePostedAt("Dec 31, 2026")?.toISOString()).toBe("2026-12-31T12:00:00.000Z");
   });
 
   it("returns undefined for invalid formats", () => {
@@ -25,7 +25,7 @@ describe("parsePostedAt (canadian-tech)", () => {
   });
 
   it("trims whitespace", () => {
-    expect(parsePostedAt("  Sep 21, 2026  ")?.toISOString()).toBe("2026-09-21T00:00:00.000Z");
+    expect(parsePostedAt("  Sep 21, 2026  ")?.toISOString()).toBe("2026-09-21T12:00:00.000Z");
   });
 });
 
@@ -45,7 +45,7 @@ describe("parseCanadianMarkdown", () => {
       applicationLink: "https://job-boards.greenhouse.io/mercury/jobs/6199367004",
       source: "canadian-tech",
     });
-    expect(rows[0].postedAt?.toISOString()).toBe("2026-09-21T00:00:00.000Z");
+    expect(rows[0].postedAt?.toISOString()).toBe("2026-09-21T12:00:00.000Z");
   });
 
   it("skips closed rows without link (per spec: don't add closed without URL)", () => {

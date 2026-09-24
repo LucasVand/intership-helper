@@ -125,7 +125,9 @@ export default function Home() {
       if (ageFilter !== "all") params.set("age", ageFilter);
       if (appliedFilter !== "all") params.set("applied", appliedFilter);
       if (sort !== "newest") params.set("sort", sort);
-      if (sourceFilter !== "all") params.set("source", sourceFilter);
+      // When searching, don't filter by source — Mercury (canadian-tech) should be found even if sourceFilter is simplify
+      // otherwise q=Mercury + source=simplify would hide the canadian-tech Mercury posting at Sep 21
+      if (sourceFilter !== "all" && !query) params.set("source", sourceFilter);
       (Object.keys(tagFilters) as TagKey[]).forEach((k) => {
         if (tagFilters[k] !== "all") params.set(k, tagFilters[k]);
       });

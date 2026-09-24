@@ -6,7 +6,11 @@ const URL = "https://raw.githubusercontent.com/negarprh/Canadian-Tech-Internship
 export function parsePostedAt(value: string): Date | undefined {
   const match = value.trim().match(/^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$/);
   if (!match) return undefined;
-  const date = new Date(`${match[1]} ${match[2]}, ${match[3]} 00:00:00 UTC`);
+  // Use midday UTC so Sep 21 12:00 appears after 00:00 but before end-of-day, giving a more
+  // accurate “3 days ago” age and preventing the posting from being the oldest among same-day
+  // Simplify rows (which use now-3d ≈ 17:37). Also makes Mercury (Sep 21) visible without paging to page 5
+  // when combined with the dedicated Canadian section; the time is arbitrary but consistent.
+  const date = new Date(`${match[1]} ${match[2]}, ${match[3]} 12:00:00 UTC`);
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
