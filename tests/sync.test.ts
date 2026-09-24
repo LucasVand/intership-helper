@@ -6,6 +6,7 @@ import {
   flagLabel,
   getLogFilePath,
   buildLogPayload,
+  buildDetails,
   findDuplicateRows,
   computeNewEntries,
   computeToUpdate,
@@ -503,5 +504,54 @@ describe("computeToUpdate", () => {
       { source: "simplify", company: "Unknown", role: "R", location: "NYC", applicationLink: "https://example.com/not-exist" },
     ];
     expect(computeToUpdate(scraped, baseExisting)).toHaveLength(0);
+  });
+});
+
+describe("buildDetails", () => {
+  it("computes per-source inserted/updated and reason counts", () => {
+    const perSourceScraped = { simplify: 10, "canadian-tech": 5 };
+    const newEntries = [
+      { source: "simplify", company: "A", role: "R", location: "NYC", applicationLink: "https://a.com" },
+      { source: "simplify", company: "B", role: "R", location: "NYC", applicationLink: "https://b.com" },
+      { source: "canadian-tech", company: "C", role: "R", location: "TOR", applicationLink: "https://c.com" },
+    ] as any;
+    const toUpdate = [
+      { flags: { source: "simplify" }, reasons: ['applicationLink: "a" → "b"', "isFaang 🔥: false→true"] },
+      { flags: { source: "simplify" }, reasons: ["isFaang 🔥: false→true"] },
+      { flags: { source: "canadian-tech" }, reasons: ['role: "Old" → "New"'] },
+    ] as any;
+    const details = buildDetails(perSourceScraped, newEntries, toUpdate);
+    expect(details.perSource).toEqual({
+      simplify: { scraped: 10, inserted: 2, updated: 2 },
+      "canadian-tech": { scraped: 5, inserted: 1, updated: 1 },
+    });
+    // reasonCounts splits on ":" then first word
+    expect(details.reasonCounts["applicationLink"]).toBe(1);
+    expect(details.reasonCounts["isFaang"]).toBe(2);
+    expect(details.reasonCounts["role"]).toBe(1);
+    expect(details.insertedSample).toHaveLength(3);
+    expect(details.updatedSample).toHaveLength(3);
+  });
+
+  it("handles empty inputs", () => {
+    const details = buildDetails({}, [], []);
+    expect(details.perSource).toEqual({});
+    expect(details.reasonCounts).toEqual({});
+    expect(details.insertedSample).toEqual([]);
+    expect(details.updatedSample).toEqual([]);
+  });
+
+  it("truncates samples to 5", () => {
+    const perSourceScraped = { simplify: 10 };
+    const newEntries = Array.from({ length: 10 }, (_, i) => ({
+      source: "simplify",
+      company: `C${i}`,
+      role: "R",
+      location: "NYC",
+      applicationLink: `https://example.com/${i}`,
+    })) as any;
+    const details = buildDetails(perSourceScraped, newEntries, []);
+    expect(details.insertedSample).toHaveLength(5);
+    expect(details.insertedSample[0].company).toBe("C0");
   });
 });

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, index, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, index, integer, jsonb } from "drizzle-orm/pg-core";
 
 export const internships = pgTable(
   "internships",
@@ -65,6 +65,16 @@ export const syncRuns = pgTable(
     error: text("error"),
     scrapedUrl: text("scraped_url"),
     source: text("source").notNull().default("combined"),
+    // enriched details: per-source counts, reason breakdown, samples
+    details: jsonb("details").$type<{
+      perSource?: Record<string, { scraped: number; inserted: number; updated: number }>;
+      reasonCounts?: Record<string, number>;
+      insertedSample?: Array<{ company: string; role: string; location: string; source: string; applicationLink: string }>;
+      updatedSample?: Array<{ id: number; company: string; role: string; source: string; reasons: string[] }>;
+      // full payload for backwards compat (optional, truncated for size)
+      inserted?: unknown[];
+      updated?: unknown[];
+    }>(),
   },
   (table) => [index("sync_runs_created_at_idx").on(table.createdAt)]
 );

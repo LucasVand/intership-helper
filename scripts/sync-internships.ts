@@ -44,6 +44,7 @@ async function recordSyncRun(
     status: string;
     error?: string | null;
     scrapedUrl: string;
+    details?: unknown;
   }
 ) {
   try {
@@ -58,12 +59,84 @@ async function recordSyncRun(
       error: data.error ?? null,
       scrapedUrl: data.scrapedUrl,
       source: "combined",
-    });
+      // @ts-ignore - details jsonb column may not exist until migration runs; drizzle will ignore if column missing and we catch error
+      details: (data as any).details ?? null,
+    } as any);
     console.log(`  sync history recorded: ${data.status} +${data.insertedCount} ~${data.updatedCount} in ${data.durationMs}ms`);
   } catch (e) {
     // table may not exist yet if migration not run — warn but don't fail sync
-    console.warn("  warning: could not record sync run (maybe run `npm run db:migrate`):", String(e).slice(0, 200));
+    // try without details column for backwards compat
+    try {
+      await db.insert(syncRuns).values({
+        scrapedCount: data.scrapedCount,
+        existingCount: data.existingCount,
+        insertedCount: data.insertedCount,
+        updatedCount: data.updatedCount,
+        totalAfter: data.totalAfter,
+        durationMs: data.durationMs,
+        status: data.status,
+        error: data.error ?? null,
+        scrapedUrl: data.scrapedUrl,
+        source: "combined",
+      });
+      console.log(`  sync history recorded (fallback without details): ${data.status} +${data.insertedCount} ~${data.updatedCount} in ${data.durationMs}ms`);
+    } catch (e2) {
+      console.warn("  warning: could not record sync run (maybe run `npm run db:migrate`):", String(e).slice(0, 200));
+    }
   }
+}
+
+export function buildDetails(
+  perSourceScraped: Record<string, number>,
+  newEntries: ScrapedInternship[],
+  toUpdate: ToUpdateEntry[],
+): {
+  perSource: Record<string, { scraped: number; inserted: number; updated: number }>;
+  reasonCounts: Record<string, number>;
+  insertedSample: Array<{ company: string; role: string; location: string; source: string; applicationLink: string }>;
+  updatedSample: Array<{ id: number; company: string; role: string; source: string; reasons: string[] }>;
+} {
+  const insertedBySource: Record<string, number> = {};
+  const updatedBySource: Record<string, number> = {};
+  for (const e of newEntries) {
+    insertedBySource[e.source] = (insertedBySource[e.source] ?? 0) + 1;
+  }
+  for (const u of toUpdate) {
+    const src = (u.flags.source as string) ?? "unknown";
+    updatedBySource[src] = (updatedBySource[src] ?? 0) + 1;
+  }
+  const allSources = new Set<string>([...Object.keys(perSourceScraped), ...Object.keys(insertedBySource), ...Object.keys(updatedBySource)]);
+  const perSource: Record<string, { scraped: number; inserted: number; updated: number }> = {};
+  for (const src of allSources) {
+    perSource[src] = {
+      scraped: perSourceScraped[src] ?? 0,
+      inserted: insertedBySource[src] ?? 0,
+      updated: updatedBySource[src] ?? 0,
+    };
+  }
+  const reasonCounts: Record<string, number> = {};
+  for (const u of toUpdate) {
+    for (const r of u.reasons) {
+      // reason format: "key: ..." or "key 🔥: ..." or "postedAt: ..." etc. Take prefix before first colon
+      const key = r.split(":")[0].trim().split(" ")[0] || r.slice(0, 30);
+      reasonCounts[key] = (reasonCounts[key] ?? 0) + 1;
+    }
+  }
+  const insertedSample = newEntries.slice(0, 5).map((e) => ({
+    company: e.company,
+    role: e.role,
+    location: e.location,
+    source: e.source,
+    applicationLink: e.applicationLink,
+  }));
+  const updatedSample = toUpdate.slice(0, 5).map((u) => ({
+    id: u.id,
+    company: u.cleanCompany,
+    role: u.cleanRole,
+    source: u.source,
+    reasons: u.reasons,
+  }));
+  return { perSource, reasonCounts, insertedSample, updatedSample };
 }
 
 export function getLogFilePath(args: string[]): string | null {
@@ -284,12 +357,17 @@ Logs:
   console.log("Fetching internships from configured sources...");
   SOURCES.forEach((source) => console.log(`  ${source.source}: ${source.url}`));
   let scraped: ScrapedInternship[] = [];
+  let perSourceScraped: Record<string, number> = {};
   try {
     const batches = await Promise.all(SOURCES.map(async (source) => {
       const rows = await source.fetchAndParse();
       console.log(`  ${source.source}: found ${rows.length} rows`);
       return rows;
     }));
+    // capture per-source scraped counts before normalization
+    SOURCES.forEach((source, idx) => {
+      perSourceScraped[source.source] = batches[idx].length;
+    });
     scraped = batches.flat().map((row) => ({
       ...row,
       applicationLink: normalizeApplicationLink(row.applicationLink),
@@ -312,6 +390,7 @@ Logs:
           status: "failed",
           error: String(e?.message ?? e).slice(0, 2000),
           scrapedUrl: SOURCES.map((source) => source.url).join(","),
+          details: { perSource: perSourceScraped, error: String(e?.message ?? e).slice(0, 500) },
         });
         await pool.end();
       } catch {}
@@ -339,6 +418,7 @@ Logs:
     console.error("Failed to query DB (have you run `npm run db:migrate`?):", e);
     const durationMs = Date.now() - startMs;
     try {
+      const detailsOnFailure = buildDetails(perSourceScraped, [], []);
       await recordSyncRun(pool, db as any, {
         scrapedCount: scraped.length,
         existingCount: 0,
@@ -349,6 +429,7 @@ Logs:
         status: "failed",
         error: String(e?.message ?? e).slice(0, 2000),
         scrapedUrl: SOURCES.map((source) => source.url).join(","),
+        details: detailsOnFailure,
       });
     } catch {}
     await pool.end();
@@ -464,6 +545,17 @@ Logs:
   console.log(`New entries to insert: ${newEntries.length} (out of ${scraped.length} scraped)`);
   console.log(`Existing rows needing update: ${toUpdate.length}`);
 
+  const details = buildDetails(perSourceScraped, newEntries, toUpdate);
+  // enriched per-source + reason summary for DB and stdout
+  console.log(
+    `Per-source: ${Object.entries(details.perSource)
+      .map(([k, v]) => `${k}: scraped ${v.scraped} +${v.inserted} ~${v.updated}`)
+      .join(" | ")}`,
+  );
+  if (Object.keys(details.reasonCounts).length > 0) {
+    console.log(`Update reasons: ${Object.entries(details.reasonCounts).map(([k, v]) => `${k}×${v}`).join(", ")}`);
+  }
+
   // Always log every insert with why/what — stdout is the primary channel (docker logs / compose logs)
   if (newEntries.length > 0) {
     console.log(`\n=== INSERTS (${newEntries.length}) — new applicationLink not in DB ===`);
@@ -515,6 +607,7 @@ Logs:
       status: "success",
       error: null,
       scrapedUrl: SOURCES.map((source) => source.url).join(","),
+      details,
     });
     await pool.end();
     process.exit(0);
@@ -532,6 +625,8 @@ Logs:
         status: "dry_run",
         dryRun: true,
       });
+      // also include enriched details in file payload for debugging
+      (payload as any).details = details;
       maybeWriteLogFile(logFilePath, payload);
     } else if (newEntries.length + toUpdate.length > 0) {
       console.log(`\nTip: re-run with --log-file to also save these ${newEntries.length + toUpdate.length} rows to JSON (e.g. --log-file=logs/sync.json or SYNC_LOG_FILE=logs/sync.json)`);
@@ -546,6 +641,7 @@ Logs:
       status: "dry_run",
       error: null,
       scrapedUrl: SOURCES.map((source) => source.url).join(","),
+      details,
     });
     await pool.end();
     process.exit(0);
@@ -607,6 +703,7 @@ Logs:
       status: "success",
       dryRun: false,
     });
+    (payload as any).details = details;
     maybeWriteLogFile(logFilePath, payload);
   } else if (inserted + updated > 0) {
     console.log(`Tip: re-run with --log-file to save per-row diffs to JSON (e.g. --log-file=logs/sync.json)`);
@@ -622,6 +719,7 @@ Logs:
     status: "success",
     error: null,
     scrapedUrl: SOURCES.map((source) => source.url).join(","),
+    details,
   });
 
   await pool.end();
@@ -645,6 +743,7 @@ main().catch(async (err) => {
         status: "failed",
         error: String(err?.message ?? err).slice(0, 2000),
         scrapedUrl: SOURCES.map((source) => source.url).join(","),
+        details: { error: String(err?.message ?? err).slice(0, 500) },
       });
       await pool.end();
     }
