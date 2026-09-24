@@ -725,28 +725,30 @@ Logs:
   await pool.end();
 }
 
-main().catch(async (err) => {
-  console.error(err);
-  // try to record failure if possible
-  try {
-    const connectionString = getDatabaseUrl();
-    if (connectionString) {
-      const pool = new Pool({ connectionString });
-      const db = drizzle(pool);
-      await recordSyncRun(pool, db, {
-        scrapedCount: 0,
-        existingCount: 0,
-        insertedCount: 0,
-        updatedCount: 0,
-        totalAfter: 0,
-        durationMs: 0,
-        status: "failed",
-        error: String(err?.message ?? err).slice(0, 2000),
-        scrapedUrl: SOURCES.map((source) => source.url).join(","),
-        details: { error: String(err?.message ?? err).slice(0, 500) },
-      });
-      await pool.end();
-    }
-  } catch {}
-  process.exit(1);
-});
+if (process.argv[1]?.includes("sync-internships")) {
+  main().catch(async (err) => {
+    console.error(err);
+    // try to record failure if possible
+    try {
+      const connectionString = getDatabaseUrl();
+      if (connectionString) {
+        const pool = new Pool({ connectionString });
+        const db = drizzle(pool);
+        await recordSyncRun(pool, db, {
+          scrapedCount: 0,
+          existingCount: 0,
+          insertedCount: 0,
+          updatedCount: 0,
+          totalAfter: 0,
+          durationMs: 0,
+          status: "failed",
+          error: String(err?.message ?? err).slice(0, 2000),
+          scrapedUrl: SOURCES.map((source) => source.url).join(","),
+          details: { error: String(err?.message ?? err).slice(0, 500) },
+        });
+        await pool.end();
+      }
+    } catch {}
+    process.exit(1);
+  });
+}

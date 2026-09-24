@@ -79,6 +79,8 @@ export default function SyncHistoryPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const fetchRuns = useCallback(async (page: number, append: boolean) => {
     if (append) setIsLoadingMore(true);
@@ -108,6 +110,30 @@ export default function SyncHistoryPage() {
     fetchRuns(1, false);
   }, [fetchRuns]);
 
+  const handleSync = async (dryRun = false) => {
+    setIsSyncing(true);
+    setSyncMessage(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/sync${dryRun ? "?dryRun=true" : ""}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun }) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      const inserted = json.insertedCount ?? json.details?.perSource ? Object.values(json.perSource as Record<string, any>).reduce((acc: number, v: any) => acc + (v.inserted || 0), 0) : json.insertedCount;
+      const updated = json.updatedCount ?? 0;
+      const perSource = json.perSource || json.details?.perSource;
+      const perSourceStr = perSource ? Object.entries(perSource).map(([k, v]: any) => `${k} +${v.inserted} ~${v.updated}`).join(" | ") : "";
+      setSyncMessage(`${json.status === "dry_run" ? "Dry run" : "Sync"} done: +${json.insertedCount} ~${json.updatedCount} in ${json.durationMs}ms${perSourceStr ? ` — ${perSourceStr}` : ""}${json.status === "dry_run" ? " (no DB write)" : ""}`);
+      // refresh list
+      await fetchRuns(1, false);
+    } catch (e: any) {
+      console.error("sync failed:", e);
+      setSyncMessage(null);
+      setError(e?.message ?? "Sync failed");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleLoadMore = () => {
     if (!pagination.hasMore || isLoadingMore) return;
     fetchRuns(pagination.page + 1, true);
@@ -132,8 +158,32 @@ export default function SyncHistoryPage() {
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <button
+                  onClick={() => handleSync(false)}
+                  disabled={isSyncing}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-600 dark:bg-emerald-500 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 dark:hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Fetch from GitHub and update DB (insert + update)"
+                >
+                  {isSyncing ? (
+                    <>
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Syncing…
+                    </>
+                  ) : (
+                    "Run sync"
+                  )}
+                </button>
+                <button
+                  onClick={() => handleSync(true)}
+                  disabled={isSyncing}
+                  className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3.5 py-1.5 text-xs font-medium text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 disabled:opacity-50"
+                  title="Dry run — fetch and show what would change without writing"
+                >
+                  Dry run
+                </button>
+                <button
                   onClick={() => fetchRuns(1, false)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  disabled={isSyncing}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
                 >
                   Refresh
                 </button>
@@ -170,6 +220,17 @@ export default function SyncHistoryPage() {
                     ) : null}
                   </div>
                 </div>
+              </div>
+            )}
+            {syncMessage && !error && (
+              <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 px-4 py-3 text-xs text-emerald-800 dark:text-emerald-300">
+                <span className="font-medium">✓ {syncMessage}</span>
+              </div>
+            )}
+            {isSyncing && (
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 flex items-center gap-2">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-400 border-t-transparent" />
+                Fetching from Simplify + Canadian Tech and updating Postgres… This may take a few seconds.
               </div>
             )}
           </div>
